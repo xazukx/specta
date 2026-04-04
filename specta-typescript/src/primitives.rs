@@ -140,26 +140,47 @@ fn export_single_internal(
         }
     }
 
-    s.push_str(indent);
-    s.push_str("export type ");
-    s.push_str(&name);
-    for part in generics {
-        s.push_str(part);
-    }
-    s.push_str(" = ");
+    let is_native_enum = matches!(ndt.ty(), DataType::Enum(e) if crate::legacy::is_native_ts_enum(e));
 
-    let _generic_scope = push_generic_scope(ndt.generics());
-    datatype(
-        s,
-        exporter,
-        types,
-        ndt.ty(),
-        vec![ndt.name().clone()],
-        Some(ndt.name()),
-        indent,
-        Default::default(),
-    )?;
-    s.push_str(";\n");
+    s.push_str(indent);
+    if is_native_enum {
+        s.push_str("export enum ");
+        s.push_str(&name);
+        s.push(' ');
+
+        let _generic_scope = push_generic_scope(ndt.generics());
+        datatype(
+            s,
+            exporter,
+            types,
+            ndt.ty(),
+            vec![ndt.name().clone()],
+            Some(ndt.name()),
+            indent,
+            Default::default(),
+        )?;
+        s.push('\n');
+    } else {
+        s.push_str("export type ");
+        s.push_str(&name);
+        for part in generics {
+            s.push_str(part);
+        }
+        s.push_str(" = ");
+
+        let _generic_scope = push_generic_scope(ndt.generics());
+        datatype(
+            s,
+            exporter,
+            types,
+            ndt.ty(),
+            vec![ndt.name().clone()],
+            Some(ndt.name()),
+            indent,
+            Default::default(),
+        )?;
+        s.push_str(";\n");
+    }
 
     Ok(())
 }

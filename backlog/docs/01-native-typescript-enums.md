@@ -1,6 +1,6 @@
 # Native TypeScript Enum Output
 
-## Status: Not Currently Supported
+## Status: Implemented
 
 Specta currently outputs all Rust enums as **TypeScript union types**, not native TypeScript `enum` declarations. There is no configuration option to switch output format.
 

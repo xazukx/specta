@@ -690,6 +690,54 @@ fn strictify_enum_variants(variants: &mut [EnumVariantOutput]) {
     }
 }
 
+pub(crate) fn is_native_ts_enum(e: &Enum) -> bool {
+    e.attributes()
+        .get_named_as::<bool>("specta:ts_enum")
+        .copied()
+        .unwrap_or(false)
+}
+
+fn render_native_ts_enum(
+    ctx: ExportContext,
+    filtered_variants: &[&(Cow<'static, str>, Variant)],
+    s: &mut String,
+    prefix: &str,
+) -> Result<()> {
+    let member_prefix = format!("{prefix}\t");
+
+    let mut members = Vec::with_capacity(filtered_variants.len());
+
+    for (variant_name, variant) in filtered_variants.iter() {
+        let key = sanitise_key(variant_name.clone(), false);
+        let value = sanitise_key(variant_name.clone(), true);
+        let member = format!("{member_prefix}{key} = {value}");
+
+        members.push(inner_comments(
+            variant.deprecated(),
+            variant.docs(),
+            member,
+            true,
+            &member_prefix,
+            !ctx.cfg.jsdoc,
+        ));
+    }
+
+    let mut seen = BTreeSet::new();
+    members.retain(|m| seen.insert(m.clone()));
+
+    if members.is_empty() {
+        s.push_str(NEVER);
+    } else {
+        s.push_str("{\n");
+        s.push_str(&members.join(",\n"));
+        s.push_str(",\n");
+        s.push_str(prefix);
+        s.push('}');
+    }
+
+    Ok(())
+}
+
 pub(crate) fn enum_datatype(
     ctx: ExportContext,
     e: &Enum,
@@ -707,6 +755,10 @@ pub(crate) fn enum_datatype(
         .iter()
         .filter(|(_, variant)| !variant.skip())
         .collect::<Vec<_>>();
+
+    if is_native_ts_enum(e) {
+        return render_native_ts_enum(ctx, &filtered_variants, s, prefix);
+    }
 
     let discriminator = analyze_discriminator(&filtered_variants);
     let fallback_override = discriminator.as_ref().and_then(|discriminator| {

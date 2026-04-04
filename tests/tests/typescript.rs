@@ -756,6 +756,117 @@ fn reserved_names() {
     }
 }
 
+#[test]
+fn native_ts_enum() {
+    #[derive(Type, serde::Serialize)]
+    #[specta(collect = false, ts_enum)]
+    enum Direction {
+        Up,
+        Down,
+        Left,
+        Right,
+    }
+
+    #[derive(Type, serde::Serialize)]
+    #[specta(collect = false, ts_enum)]
+    #[serde(rename_all = "SCREAMING_SNAKE_CASE")]
+    enum LogLevel {
+        Debug,
+        Info,
+        Warn,
+        Error,
+    }
+
+    /// Documented enum
+    #[derive(Type, serde::Serialize)]
+    #[specta(collect = false, ts_enum)]
+    enum DocEnum {
+        /// First variant
+        A,
+        /// Second variant
+        B,
+    }
+
+    #[derive(Type, serde::Serialize)]
+    #[specta(collect = false, ts_enum)]
+    enum WithSkip {
+        Kept,
+        #[serde(skip)]
+        Skipped,
+        AlsoKept,
+    }
+
+    // Basic native TS enum
+    {
+        let types = Types::default().register::<Direction>();
+        let resolved = specta_serde::apply(types).unwrap();
+        insta::assert_snapshot!(
+            "native-ts-enum-basic",
+            Typescript::default()
+                .export(&resolved)
+                .unwrap()
+        );
+    }
+
+    // With serde rename_all
+    {
+        let mut types = Types::default().register::<LogLevel>();
+        let resolved = specta_serde::apply(types).unwrap();
+        insta::assert_snapshot!(
+            "native-ts-enum-rename",
+            Typescript::default()
+                .export(&resolved)
+                .unwrap()
+        );
+    }
+
+    // With doc comments
+    {
+        let mut types = Types::default().register::<DocEnum>();
+        let resolved = specta_serde::apply(types).unwrap();
+        insta::assert_snapshot!(
+            "native-ts-enum-docs",
+            Typescript::default()
+                .export(&resolved)
+                .unwrap()
+        );
+    }
+
+    // With skipped variant
+    {
+        let mut types = Types::default().register::<WithSkip>();
+        let resolved = specta_serde::apply(types).unwrap();
+        insta::assert_snapshot!(
+            "native-ts-enum-skip",
+            Typescript::default()
+                .export(&resolved)
+                .unwrap()
+        );
+    }
+
+    // Mixed: ts_enum and regular enum together
+    {
+        #[derive(Type, serde::Serialize)]
+        #[specta(collect = false)]
+        enum RegularEnum {
+            Red,
+            Green,
+            Blue,
+        }
+
+        let mut types = Types::default()
+            .register::<Direction>()
+            .register::<RegularEnum>();
+        let resolved = specta_serde::apply(types).unwrap();
+        insta::assert_snapshot!(
+            "native-ts-enum-mixed",
+            Typescript::default()
+                .export(&resolved)
+                .unwrap()
+        );
+    }
+}
+
 // #[test]
 // fn duplicate_ty_name() {
 //     mod one {

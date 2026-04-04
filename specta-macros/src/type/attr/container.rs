@@ -20,6 +20,9 @@ pub struct ContainerAttr {
     // Struct only (we pass it anyway so enums get nice errors)
     pub transparent: bool,
 
+    // Enum only: output as native TypeScript enum instead of union type
+    pub ts_enum: bool,
+
     // Custom where clause bounds (None = automatic, Some(vec) = custom)
     pub bound: Option<Vec<syn::WherePredicate>>,
 }
@@ -72,6 +75,10 @@ impl ContainerAttr {
             // We generally want `#[serde(...)]` attributes to only be handled by the runtime but,
             // we make an exception for `#[serde(transparent)]`.
             result.transparent = attr.parse_bool().unwrap_or(true);
+        }
+
+        if let Some(attr) = attrs.extract("specta", "ts_enum") {
+            result.ts_enum = attr.parse_bool().unwrap_or(true);
         }
 
         if let Some(attr) = attrs.extract("specta", "bound") {

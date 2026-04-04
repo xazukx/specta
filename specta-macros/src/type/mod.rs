@@ -160,12 +160,20 @@ pub fn derive(input: proc_macro::TokenStream) -> syn::Result<proc_macro::TokenSt
             )),
         }?;
 
+        let ts_enum_insert = container_attrs.ts_enum.then(|| {
+            quote!(attrs.insert("specta:ts_enum", true);)
+        });
+
         quote!(
             {
                 let mut e = #dt_expr;
                 match &mut e {
                     datatype::DataType::Struct(s) => *s.attributes_mut() = #container_runtime_attrs,
-                    datatype::DataType::Enum(en) => *en.attributes_mut() = #container_runtime_attrs,
+                    datatype::DataType::Enum(en) => {
+                        let mut attrs = #container_runtime_attrs;
+                        #ts_enum_insert
+                        *en.attributes_mut() = attrs;
+                    },
                     _ => unreachable!("specta derive generated non-container datatype"),
                 }
                 e
