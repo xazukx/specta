@@ -108,6 +108,7 @@
 #![allow(warnings)] // TODO: leaving this until it's implemented to avoid unnecessary warnings.
 
 mod error;
+/// Import JSON Schema definitions as Specta DataTypes.
 pub mod import;
 mod json_schema;
 mod layout;
@@ -119,8 +120,9 @@ pub use json_schema::JsonSchema;
 pub use layout::Layout;
 pub use schema_version::SchemaVersion;
 
-// Legacy function - kept for backward compatibility
+/// Convert a schemars Schema to a Specta DataType.
 #[deprecated(note = "Use import::from_schema instead")]
+#[allow(deprecated)]
 pub fn to_ast(schema: &schemars::Schema) -> Result<specta::datatype::DataType, Error> {
     import::from_schema(schema)
 }

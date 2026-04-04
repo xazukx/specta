@@ -1,6 +1,6 @@
 use crate::{Error, Layout, SchemaVersion, primitives};
 use serde_json::Value;
-use specta::{Types, datatype::NamedDataType};
+use specta::{ResolvedTypes, Types, datatype::NamedDataType};
 use std::collections::BTreeMap;
 use std::path::Path;
 
@@ -58,14 +58,18 @@ impl JsonSchema {
         self
     }
 
-    /// Export types to JSON Schema as a JSON string
-    pub fn export(&self, types: &Types) -> Result<String, Error> {
-        let value = self.export_as_value(types)?;
+    /// Export resolved types to JSON Schema as a JSON string.
+    ///
+    /// Use this after calling `specta_serde::apply()` to get correct serde
+    /// representations (enum tagging, renames, etc).
+    pub fn export(&self, resolved: &ResolvedTypes) -> Result<String, Error> {
+        let value = self.export_as_value(resolved)?;
         Ok(serde_json::to_string_pretty(&value)?)
     }
 
-    /// Export types to JSON Schema as serde_json::Value
-    pub fn export_as_value(&self, types: &Types) -> Result<Value, Error> {
+    /// Export resolved types to JSON Schema as a `serde_json::Value`.
+    pub fn export_as_value(&self, resolved: &ResolvedTypes) -> Result<Value, Error> {
+        let types = resolved.as_types();
         match self.layout {
             Layout::SingleFile => self.export_single_file(types),
             Layout::Files => Err(Error::ConversionError(
@@ -74,9 +78,10 @@ impl JsonSchema {
         }
     }
 
-    /// Export to file or directory
-    pub fn export_to(&self, path: impl AsRef<Path>, types: &Types) -> Result<(), Error> {
+    /// Export resolved types to file or directory.
+    pub fn export_to(&self, path: impl AsRef<Path>, resolved: &ResolvedTypes) -> Result<(), Error> {
         let path = path.as_ref();
+        let types = resolved.as_types();
 
         match self.layout {
             Layout::SingleFile => {
@@ -88,17 +93,37 @@ impl JsonSchema {
         }
     }
 
+    /// Export raw types (without serde transformation) as a JSON string.
+    ///
+    /// Prefer [`export`](Self::export) with `specta_serde::apply()` for types
+    /// that use serde attributes.
+    pub fn export_raw(&self, types: &Types) -> Result<String, Error> {
+        let value = self.export_raw_as_value(types)?;
+        Ok(serde_json::to_string_pretty(&value)?)
+    }
+
+    /// Export raw types (without serde transformation) as a `serde_json::Value`.
+    pub fn export_raw_as_value(&self, types: &Types) -> Result<Value, Error> {
+        match self.layout {
+            Layout::SingleFile => self.export_single_file(types),
+            Layout::Files => Err(Error::ConversionError(
+                "Use export_to() for Files layout".to_string(),
+            )),
+        }
+    }
+
     fn export_single_file(&self, types: &Types) -> Result<Value, Error> {
         let mut definitions = BTreeMap::new();
 
-        // Convert each type to a schema
-        for ndt in types.into_sorted_iter() {
+        for ndt in types
+            .into_sorted_iter()
+            .filter(|ndt| ndt.requires_reference(types))
+        {
             let schema = primitives::export(self, types, &ndt)?;
             let name = ndt.name().to_string();
             definitions.insert(name, schema);
         }
 
-        // Build root schema
         let defs_key = self.schema_version.definitions_key();
         let mut root = serde_json::json!({
             "$schema": self.schema_version.uri(),
@@ -122,20 +147,18 @@ impl JsonSchema {
     }
 
     fn export_files(&self, base_path: &Path, types: &Types) -> Result<(), Error> {
-        // Create base directory
         std::fs::create_dir_all(base_path)?;
 
-        // Group types by module path
         let mut by_module: BTreeMap<String, Vec<NamedDataType>> = BTreeMap::new();
 
-        for ndt in types.into_sorted_iter() {
-            // module_path returns &Cow<'static, str> which is like &String
-            // We need to convert path segments to a string
+        for ndt in types
+            .into_sorted_iter()
+            .filter(|ndt| ndt.requires_reference(types))
+        {
             let module = ndt.module_path().to_string().replace("::", "/");
             by_module.entry(module).or_default().push(ndt.clone());
         }
 
-        // Write each type to its own file
         for (module, ndts) in by_module {
             let module_dir = if module.is_empty() {
                 base_path.to_path_buf()
@@ -150,12 +173,10 @@ impl JsonSchema {
                 let filename = format!("{}.schema.json", ndt.name());
                 let file_path = module_dir.join(filename);
 
-                // Create a root schema for this type
                 let mut root = serde_json::json!({
                     "$schema": self.schema_version.uri(),
                 });
 
-                // Merge in the type's schema properties
                 if let Some(obj) = schema.as_object() {
                     for (k, v) in obj {
                         root.as_object_mut().unwrap().insert(k.clone(), v.clone());

@@ -1,0 +1,13 @@
+---
+source: specta-jsonschema/tests/basic.rs
+assertion_line: 385
+expression: "value[\"definitions\"][\"Status\"]"
+---
+{
+  "enum": [
+    "Active",
+    "Inactive",
+    "Pending"
+  ],
+  "title": "Status"
+}

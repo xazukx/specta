@@ -1,3 +1,5 @@
+#![allow(missing_docs)]
+
 use specta::{Type, Types};
 use specta_jsonschema::{JsonSchema, SchemaVersion};
 
@@ -32,12 +34,12 @@ fn main() {
         .register::<Role>()
         .register::<Post>();
 
-    // Export to JSON Schema (Draft 7)
+    // Export to JSON Schema (Draft 7) using raw export (no serde transformation)
     let schema = JsonSchema::default()
         .schema_version(SchemaVersion::Draft7)
         .title("My API Types")
         .description("JSON Schema for my API types")
-        .export(&types)
+        .export_raw(&types)
         .unwrap();
 
     println!("{}", schema);
