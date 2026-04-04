@@ -14,6 +14,16 @@ use specta::{
 
 use crate::{Error, primitives, references};
 
+/// Target Zod version for generated schemas.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub enum ZodVersion {
+    /// Zod v3 — stable, backward-compatible output (default).
+    #[default]
+    V3,
+    /// Zod v4 — uses `z.strictObject()`, `z.int()`, and other v4-specific APIs.
+    V4,
+}
+
 /// Allows configuring how Specta's Zod exporter will deal with BigInt types ([i64], [i128] etc).
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
 pub enum BigIntExportBehavior {
@@ -70,6 +80,8 @@ pub struct Zod {
     pub bigint: BigIntExportBehavior,
     /// Output layout mode for generated Zod TypeScript.
     pub layout: Layout,
+    /// Target Zod version for generated schemas.
+    pub zod_version: ZodVersion,
 }
 
 impl Default for Zod {
@@ -89,6 +101,7 @@ impl Zod {
             ),
             bigint: Default::default(),
             layout: Default::default(),
+            zod_version: Default::default(),
         }
     }
 
@@ -125,6 +138,12 @@ impl Zod {
     /// Configure bindings layout.
     pub fn layout(mut self, layout: Layout) -> Self {
         self.layout = layout;
+        self
+    }
+
+    /// Configure the target Zod version.
+    pub fn zod_version(mut self, version: ZodVersion) -> Self {
+        self.zod_version = version;
         self
     }
 

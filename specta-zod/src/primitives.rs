@@ -11,7 +11,8 @@ use specta::{
 };
 
 use crate::{
-    BigIntExportBehavior, Error, Layout, Zod, opaque, reserved_names::RESERVED_TYPE_NAMES,
+    BigIntExportBehavior, Error, Layout, Zod, ZodVersion, opaque,
+    reserved_names::RESERVED_TYPE_NAMES,
 };
 
 thread_local! {
@@ -249,7 +250,7 @@ fn datatype(
     force_inline_ref: bool,
 ) -> Result<(), Error> {
     match dt {
-        DataType::Primitive(p) => s.push_str(primitive_dt(&exporter.bigint, p, location)?),
+        DataType::Primitive(p) => s.push_str(primitive_dt(exporter, p, location)?),
         DataType::List(l) => list_dt(s, exporter, types, l, location, generics)?,
         DataType::Map(m) => map_dt(s, exporter, types, m, location, generics)?,
         DataType::Nullable(def) => {
@@ -298,17 +299,33 @@ fn datatype(
 }
 
 fn primitive_dt(
-    b: &BigIntExportBehavior,
+    exporter: &Zod,
     p: &Primitive,
     location: Vec<Cow<'static, str>>,
 ) -> Result<&'static str, Error> {
     use Primitive::*;
 
+    let is_v4 = exporter.zod_version == ZodVersion::V4;
+    let b = &exporter.bigint;
+
     Ok(match p {
-        i8 | i16 | i32 | u8 | u16 | u32 | f16 | f32 | f64 | f128 => "z.number()",
+        i8 | i16 | i32 | u8 | u16 | u32 => {
+            if is_v4 {
+                "z.int()"
+            } else {
+                "z.number()"
+            }
+        }
+        f16 | f32 | f64 | f128 => "z.number()",
         usize | isize | i64 | u64 | i128 | u128 => match b {
             BigIntExportBehavior::String => "z.string()",
-            BigIntExportBehavior::Number => "z.number()",
+            BigIntExportBehavior::Number => {
+                if is_v4 {
+                    "z.int()"
+                } else {
+                    "z.number()"
+                }
+            }
             BigIntExportBehavior::BigInt => "z.bigint()",
             BigIntExportBehavior::Fail => return Err(Error::bigint_forbidden(location.join("."))),
         },
@@ -460,7 +477,10 @@ fn struct_dt(
                 .collect::<Vec<_>>();
 
             if all_fields.is_empty() {
-                s.push_str("z.object({}).strict()");
+                match exporter.zod_version {
+                    ZodVersion::V3 => s.push_str("z.object({}).strict()"),
+                    ZodVersion::V4 => s.push_str("z.strictObject({})"),
+                }
                 return Ok(());
             }
 
@@ -525,10 +545,31 @@ fn enum_dt(
     location: Vec<Cow<'static, str>>,
     generics: &[(GenericReference, DataType)],
 ) -> Result<(), Error> {
-    let variants = e
+    let filtered: Vec<_> = e
         .variants()
         .iter()
         .filter(|(_, variant)| !variant.skip())
+        .collect();
+
+    // In v4, string-only enums with 2+ unit variants use z.enum(["A", "B"])
+    if exporter.zod_version == ZodVersion::V4
+        && filtered.len() >= 2
+        && filtered
+            .iter()
+            .all(|(_, v)| matches!(v.fields(), Fields::Unit))
+    {
+        let mut names: Vec<_> = filtered
+            .iter()
+            .map(|(name, _)| format!("\"{}\"", escape_string(name)))
+            .collect();
+        names.sort();
+        names.dedup();
+        write!(s, "z.enum([{}])", names.join(", "))?;
+        return Ok(());
+    }
+
+    let variants = filtered
+        .iter()
         .map(|(name, variant)| {
             enum_variant_dt(
                 exporter,
@@ -572,7 +613,10 @@ fn enum_variant_dt(
         Fields::Unit => Ok(Some(format!("z.literal(\"{}\")", escape_string(name)))),
         Fields::Named(named) => {
             if named.fields().iter().all(|(_, field)| field.ty().is_none()) {
-                return Ok(Some("z.object({}).strict()".to_string()));
+                return Ok(Some(match exporter.zod_version {
+                    ZodVersion::V3 => "z.object({}).strict()".to_string(),
+                    ZodVersion::V4 => "z.strictObject({})".to_string(),
+                }));
             }
 
             let mut schema = String::from("z.object({");

@@ -6,7 +6,7 @@ use specta::{
     datatype::{DataType, NamedDataType, Primitive, Reference},
 };
 use specta_typescript::Typescript;
-use specta_zod::{BigIntExportBehavior, Layout, Zod, primitives};
+use specta_zod::{BigIntExportBehavior, Layout, Zod, ZodVersion, primitives};
 use tempfile::TempDir;
 
 macro_rules! for_bigint_types {
@@ -141,8 +141,10 @@ fn zod_export_smoke() {
         .unwrap();
 
     assert!(out.contains("import { z } from \"zod\";"));
-    assert!(out.contains("export const DemoSchema"));
+    assert!(out.contains("export const DemoSchema = z.object({\n\tinner: InnerSchema,\n\tcount: z.number(),\n\tmaybe: z.string().nullable(),\n});"));
     assert!(out.contains("export type Demo = z.infer<typeof DemoSchema>;"));
+    assert!(out.contains("export const InnerSchema = z.object({\n\tvalue: z.string(),\n});"));
+    assert!(out.contains("export type Inner = z.infer<typeof InnerSchema>;"));
 }
 
 #[test]
@@ -267,10 +269,12 @@ fn zod_rejects_invalid_serde_shapes_via_transformation() {
 #[test]
 fn zod_empty_named_shapes_are_strict() {
     let empty_struct = export_for::<EmptyStruct>().unwrap();
-    assert!(empty_struct.contains("z.object({}).strict()"));
+    assert!(empty_struct.contains("export const EmptyStructSchema = z.object({}).strict();"));
 
     let empty_variant = export_for::<EmptyNamedVariant>().unwrap();
-    assert!(empty_variant.contains("z.object({}).strict()"));
+    assert!(
+        empty_variant.contains("export const EmptyNamedVariantSchema = z.object({}).strict();")
+    );
 }
 
 #[test]
@@ -329,7 +333,7 @@ fn zod_recursive_types_use_lazy() {
     let resolved = ResolvedTypes::from_resolved_types(types);
 
     let out = Zod::default().export(&resolved).unwrap();
-    assert!(out.contains("z.lazy(() => RecursiveSchema)"));
+    assert!(out.contains("export const RecursiveSchema = z.object({\n\tchild: z.lazy(() => RecursiveSchema).nullable(),\n});"));
 }
 
 #[test]
@@ -362,4 +366,215 @@ fn temp_dir() -> TempDir {
 fn export_for<T: Type>() -> Result<String, specta_zod::Error> {
     let types = Types::default().register::<T>();
     Zod::default().export(&ResolvedTypes::from_resolved_types(types))
+}
+
+fn export_for_v4<T: Type>() -> Result<String, specta_zod::Error> {
+    let types = Types::default().register::<T>();
+    Zod::default()
+        .zod_version(ZodVersion::V4)
+        .export(&ResolvedTypes::from_resolved_types(types))
+}
+
+fn inline_for_v4<T: Type>() -> Result<String, specta_zod::Error> {
+    let zod = Zod::default().zod_version(ZodVersion::V4);
+    inline_for_with::<T>(&zod)
+}
+
+fn inline_for_with<T: Type>(zod: &Zod) -> Result<String, specta_zod::Error> {
+    let mut types = Types::default();
+    let dt = T::definition(&mut types);
+    primitives::inline(zod, &ResolvedTypes::from_resolved_types(types), &dt)
+}
+
+// --- Zod v4 tests ---
+
+#[test]
+fn zod_v4_empty_named_shapes_use_strict_object() {
+    let empty_struct = export_for_v4::<EmptyStruct>().unwrap();
+    assert!(
+        empty_struct.contains("export const EmptyStructSchema = z.strictObject({});"),
+        "v4 empty struct should use z.strictObject({{}}), got: {empty_struct}"
+    );
+
+    let empty_variant = export_for_v4::<EmptyNamedVariant>().unwrap();
+    assert!(
+        empty_variant.contains("export const EmptyNamedVariantSchema = z.strictObject({});"),
+        "v4 empty variant should use z.strictObject({{}}), got: {empty_variant}"
+    );
+}
+
+#[test]
+fn zod_v4_integer_types_use_z_int() {
+    assert_eq!(inline_for_v4::<i8>().unwrap(), "z.int()");
+    assert_eq!(inline_for_v4::<i16>().unwrap(), "z.int()");
+    assert_eq!(inline_for_v4::<i32>().unwrap(), "z.int()");
+    assert_eq!(inline_for_v4::<u8>().unwrap(), "z.int()");
+    assert_eq!(inline_for_v4::<u16>().unwrap(), "z.int()");
+    assert_eq!(inline_for_v4::<u32>().unwrap(), "z.int()");
+}
+
+#[test]
+fn zod_v4_float_types_use_z_number() {
+    assert_eq!(inline_for_v4::<f32>().unwrap(), "z.number()");
+    assert_eq!(inline_for_v4::<f64>().unwrap(), "z.number()");
+}
+
+#[test]
+fn zod_v4_bigint_number_uses_z_int() {
+    let zod = Zod::default()
+        .zod_version(ZodVersion::V4)
+        .bigint(BigIntExportBehavior::Number);
+
+    for_bigint_types!(T -> |_name| {
+        let result = inline_for_with::<T>(&zod).unwrap();
+        assert_eq!(result, "z.int()", "v4 BigInt-as-Number should use z.int()");
+    });
+}
+
+#[test]
+fn zod_v4_bigint_other_behaviors_unchanged() {
+    let zod_string = Zod::default()
+        .zod_version(ZodVersion::V4)
+        .bigint(BigIntExportBehavior::String);
+    let zod_bigint = Zod::default()
+        .zod_version(ZodVersion::V4)
+        .bigint(BigIntExportBehavior::BigInt);
+    let zod_fail = Zod::default()
+        .zod_version(ZodVersion::V4)
+        .bigint(BigIntExportBehavior::Fail);
+
+    for_bigint_types!(T -> |_name| {
+        assert_eq!(inline_for_with::<T>(&zod_string).unwrap(), "z.string()");
+        assert_eq!(inline_for_with::<T>(&zod_bigint).unwrap(), "z.bigint()");
+        assert!(inline_for_with::<T>(&zod_fail).is_err());
+    });
+}
+
+#[test]
+fn zod_v3_integer_types_still_use_z_number() {
+    let zod = Zod::default().zod_version(ZodVersion::V3);
+    assert_eq!(inline_for_with::<i32>(&zod).unwrap(), "z.number()");
+    assert_eq!(inline_for_with::<u16>(&zod).unwrap(), "z.number()");
+}
+
+#[test]
+fn zod_v3_empty_shapes_still_use_strict() {
+    let empty_struct = export_for::<EmptyStruct>().unwrap();
+    assert!(empty_struct.contains("export const EmptyStructSchema = z.object({}).strict();"));
+
+    let empty_variant = export_for::<EmptyNamedVariant>().unwrap();
+    assert!(
+        empty_variant.contains("export const EmptyNamedVariantSchema = z.object({}).strict();")
+    );
+}
+
+#[test]
+fn zod_v4_export_smoke() {
+    #[derive(Type)]
+    struct V4Demo {
+        name: String,
+        count: i32,
+        ratio: f64,
+        flag: bool,
+        maybe: Option<String>,
+    }
+
+    let types = Types::default().register::<V4Demo>();
+    let resolved = ResolvedTypes::from_resolved_types(types);
+
+    let out = Zod::default()
+        .zod_version(ZodVersion::V4)
+        .bigint(BigIntExportBehavior::Number)
+        .export(&resolved)
+        .unwrap();
+
+    assert!(out.contains("export const V4DemoSchema = z.object({\n\tname: z.string(),\n\tcount: z.int(),\n\tratio: z.number(),\n\tflag: z.boolean(),\n\tmaybe: z.string().nullable(),\n});"));
+    assert!(out.contains("export type V4Demo = z.infer<typeof V4DemoSchema>;"));
+}
+
+#[test]
+fn zod_version_defaults_to_v3() {
+    let zod = Zod::default();
+    assert_eq!(zod.zod_version, ZodVersion::V3);
+}
+
+// --- ts_enum enums still export as z.literal/z.union in Zod ---
+
+#[derive(Type, Serialize)]
+#[specta(collect = false, ts_enum)]
+enum Direction {
+    Up,
+    Down,
+    Left,
+    Right,
+}
+
+#[test]
+fn zod_v3_enum_outputs_union_of_literals() {
+    let types = Types::default().register::<Direction>();
+    let resolved = ResolvedTypes::from_resolved_types(types);
+
+    let out = Zod::default().export(&resolved).unwrap();
+
+    assert!(
+        out.contains("export const DirectionSchema = z.union([z.literal(\"Down\"), z.literal(\"Left\"), z.literal(\"Right\"), z.literal(\"Up\")]);"),
+        "v3 string enum should output z.union of z.literal variants, got:\n{out}"
+    );
+    assert!(
+        out.contains("export type Direction = z.infer<typeof DirectionSchema>;"),
+        "got:\n{out}"
+    );
+}
+
+#[test]
+fn zod_v4_string_enum_uses_z_enum() {
+    let types = Types::default().register::<Direction>();
+    let resolved = ResolvedTypes::from_resolved_types(types);
+
+    let out = Zod::default()
+        .zod_version(ZodVersion::V4)
+        .export(&resolved)
+        .unwrap();
+
+    assert!(
+        out.contains(
+            "export const DirectionSchema = z.enum([\"Down\", \"Left\", \"Right\", \"Up\"]);"
+        ),
+        "v4 string enum should use z.enum([...]), got:\n{out}"
+    );
+    assert!(
+        out.contains("export type Direction = z.infer<typeof DirectionSchema>;"),
+        "got:\n{out}"
+    );
+    assert!(
+        !out.contains("z.literal"),
+        "v4 string enum should not use z.literal, got:\n{out}"
+    );
+    assert!(
+        !out.contains("z.union"),
+        "v4 string enum should not use z.union, got:\n{out}"
+    );
+}
+
+#[derive(Type, Serialize)]
+#[specta(collect = false)]
+enum MixedEnum {
+    Unit,
+    WithData(String),
+}
+
+#[test]
+fn zod_v4_mixed_enum_still_uses_union() {
+    let types = Types::default().register::<MixedEnum>();
+    let resolved = ResolvedTypes::from_resolved_types(types);
+
+    let out = Zod::default()
+        .zod_version(ZodVersion::V4)
+        .export(&resolved)
+        .unwrap();
+
+    assert!(
+        out.contains("export const MixedEnumSchema = z.union([z.literal(\"Unit\"), z.string()]);"),
+        "v4 mixed enum (unit + data variants) should still use z.union, got:\n{out}"
+    );
 }
