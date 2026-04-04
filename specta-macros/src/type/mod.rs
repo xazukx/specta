@@ -160,9 +160,9 @@ pub fn derive(input: proc_macro::TokenStream) -> syn::Result<proc_macro::TokenSt
             )),
         }?;
 
-        let ts_enum_insert = container_attrs.ts_enum.then(|| {
-            quote!(attrs.insert("specta:ts_enum", true);)
-        });
+        let ts_enum_insert = container_attrs
+            .ts_enum
+            .then(|| quote!(attrs.insert("specta:ts_enum", true);));
 
         quote!(
             {

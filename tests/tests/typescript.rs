@@ -802,9 +802,7 @@ fn native_ts_enum() {
         let resolved = specta_serde::apply(types).unwrap();
         insta::assert_snapshot!(
             "native-ts-enum-basic",
-            Typescript::default()
-                .export(&resolved)
-                .unwrap()
+            Typescript::default().export(&resolved).unwrap()
         );
     }
 
@@ -814,9 +812,7 @@ fn native_ts_enum() {
         let resolved = specta_serde::apply(types).unwrap();
         insta::assert_snapshot!(
             "native-ts-enum-rename",
-            Typescript::default()
-                .export(&resolved)
-                .unwrap()
+            Typescript::default().export(&resolved).unwrap()
         );
     }
 
@@ -826,9 +822,7 @@ fn native_ts_enum() {
         let resolved = specta_serde::apply(types).unwrap();
         insta::assert_snapshot!(
             "native-ts-enum-docs",
-            Typescript::default()
-                .export(&resolved)
-                .unwrap()
+            Typescript::default().export(&resolved).unwrap()
         );
     }
 
@@ -838,9 +832,7 @@ fn native_ts_enum() {
         let resolved = specta_serde::apply(types).unwrap();
         insta::assert_snapshot!(
             "native-ts-enum-skip",
-            Typescript::default()
-                .export(&resolved)
-                .unwrap()
+            Typescript::default().export(&resolved).unwrap()
         );
     }
 
@@ -860,9 +852,7 @@ fn native_ts_enum() {
         let resolved = specta_serde::apply(types).unwrap();
         insta::assert_snapshot!(
             "native-ts-enum-mixed",
-            Typescript::default()
-                .export(&resolved)
-                .unwrap()
+            Typescript::default().export(&resolved).unwrap()
         );
     }
 }

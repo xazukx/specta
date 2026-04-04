@@ -140,7 +140,8 @@ fn export_single_internal(
         }
     }
 
-    let is_native_enum = matches!(ndt.ty(), DataType::Enum(e) if crate::legacy::is_native_ts_enum(e));
+    let is_native_enum =
+        matches!(ndt.ty(), DataType::Enum(e) if crate::legacy::is_native_ts_enum(e));
 
     s.push_str(indent);
     if is_native_enum {
