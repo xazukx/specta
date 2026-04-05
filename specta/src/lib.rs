@@ -11,6 +11,8 @@
 #[cfg_attr(docsrs, doc(cfg(feature = "collect")))]
 #[doc(hidden)]
 pub mod collect;
+mod constant;
+mod constants;
 pub mod datatype;
 #[cfg(feature = "function")]
 #[cfg_attr(docsrs, doc(cfg(feature = "function")))]
@@ -21,6 +23,8 @@ mod r#type;
 mod types;
 
 // TODO: Can we just move the trait here or `#[doc(inline)]`
+pub use constant::{Constant, NamedConstant};
+pub use constants::Constants;
 pub use r#type::Type;
 pub use types::{ResolvedTypes, Types};
 
@@ -33,6 +37,11 @@ pub use collect::collect;
 #[cfg(feature = "derive")]
 #[cfg_attr(docsrs, doc(cfg(feature = "derive")))]
 pub use specta_macros::Type;
+
+#[doc(inline)]
+#[cfg(feature = "derive")]
+#[cfg_attr(docsrs, doc(cfg(feature = "derive")))]
+pub use specta_macros::specta_const;
 
 #[doc(hidden)]
 #[cfg(feature = "derive")]

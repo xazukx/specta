@@ -8,6 +8,7 @@
     html_favicon_url = "https://github.com/specta-rs/specta/raw/main/.github/logo-128.png"
 )]
 
+mod constant;
 #[cfg(feature = "DO_NOT_USE_function")]
 mod specta;
 mod r#type;
@@ -51,6 +52,35 @@ use syn::{Error, LitStr, Type, parse_macro_input};
 #[proc_macro_derive(Type, attributes(specta))]
 pub fn derive_type(input: proc_macro::TokenStream) -> proc_macro::TokenStream {
     r#type::derive(input).unwrap_or_else(|err| err.into_compile_error().into())
+}
+
+/// Marks a `const` item for TypeScript export.
+///
+/// This attribute macro wraps a bare `const` item, generating a hidden struct
+/// that implements `specta::Constant` alongside the original const.
+///
+/// # Attributes
+///
+/// - `name = "TS_NAME"` - Override the TypeScript export name. Default: the Rust const name.
+/// - `output = "string"` or `output = "bytes"` - Control how the value is serialized.
+///
+/// ## Example
+///
+/// ```ignore
+/// #[specta::specta_const]
+/// pub const MAX_RETRIES: u32 = 5;
+/// // Outputs: export const MAX_RETRIES = 5 as const;
+///
+/// #[specta::specta_const(name = "MAX_RETRY_COUNT")]
+/// pub const MAX_RETRIES: u32 = 5;
+/// // Outputs: export const MAX_RETRY_COUNT = 5 as const;
+/// ```
+#[proc_macro_attribute]
+pub fn specta_const(
+    attr: proc_macro::TokenStream,
+    item: proc_macro::TokenStream,
+) -> proc_macro::TokenStream {
+    constant::attribute(attr, item).unwrap_or_else(|err| err.into_compile_error().into())
 }
 
 /// Parses a string literal into a Rust type token stream.

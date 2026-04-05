@@ -4,7 +4,7 @@ use std::{
 };
 
 use crate::{
-    Type,
+    Constants, Type,
     datatype::{NamedDataType, NamedId},
 };
 
@@ -22,19 +22,6 @@ pub struct Types(
     pub(crate) usize,
 );
 
-/// A wrapper around [`Types`] indicating the type graph has already been
-/// transformed for a specific export format.
-///
-/// This is generally constructed by a format crate (for example
-/// [`specta-serde`](https://docs.rs/specta-serde)) after applying
-/// format-specific rewrites.
-///
-/// Constructing this wrapper from plain [`Types`] is explicit because the
-/// conversion may change type shapes. Prefer using your format crate's
-/// conversion entry points when possible.
-#[derive(Debug, Clone)]
-pub struct ResolvedTypes(Types);
-
 impl fmt::Debug for Types {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.debug_tuple("Types").field(&self.0).finish()
@@ -48,7 +35,7 @@ impl Types {
         self
     }
 
-    /// Register a [`Type`](crate::Type) with the collection.
+    /// Register a [`Type`] with the collection.
     pub fn register_mut<T: Type>(&mut self) -> &mut Self {
         T::definition(self);
         self
@@ -151,6 +138,22 @@ impl Types {
     }
 }
 
+/// A wrapper around [`Types`] indicating the type graph has already been
+/// transformed for a specific export format.
+///
+/// This is generally constructed by a format crate (for example
+/// [`specta-serde`](https://docs.rs/specta-serde)) after applying
+/// format-specific rewrites.
+///
+/// Constructing this wrapper from plain [`Types`] is explicit because the
+/// conversion may change type shapes. Prefer using your format crate's
+/// conversion entry points when possible.
+#[derive(Debug, Clone)]
+pub struct ResolvedTypes {
+    types: Types,
+    constants: Constants,
+}
+
 impl ResolvedTypes {
     /// Wrap already-resolved [`Types`] as [`ResolvedTypes`].
     ///
@@ -160,7 +163,16 @@ impl ResolvedTypes {
     ///
     /// If you call this in end-user code your types may not look how you expect!
     pub fn from_resolved_types(types: Types) -> Self {
-        Self(types)
+        Self {
+            types,
+            constants: Constants::default(),
+        }
+    }
+
+    /// Attach constants to this resolved type set.
+    pub fn with_constants(mut self, constants: Constants) -> Self {
+        self.constants = constants;
+        self
     }
 
     /// Borrow the underlying [`Types`] collection.
@@ -171,7 +183,7 @@ impl ResolvedTypes {
     /// rewrote type shapes, this still returns those rewritten shapes. It is your
     /// responsibility to ensure consumers treat these as already-resolved types.
     pub fn as_types(&self) -> &Types {
-        &self.0
+        &self.types
     }
 
     /// Consume [`ResolvedTypes`] and return the underlying [`Types`].
@@ -181,7 +193,12 @@ impl ResolvedTypes {
     /// This does not undo format-specific resolution. The returned [`Types`]
     /// remain whatever shape they were resolved into.
     pub fn into_types(self) -> Types {
-        self.0
+        self.types
+    }
+
+    /// Borrow the constants collection.
+    pub fn constants(&self) -> &Constants {
+        &self.constants
     }
 
     /// Sort the collection into a consistent order and return an iterator.
@@ -190,12 +207,12 @@ impl ResolvedTypes {
     ///
     /// This method requires reallocating the map to sort the collection. You should prefer [Self::into_unsorted_iter] if you don't care about the order.
     pub fn into_sorted_iter(&self) -> impl ExactSizeIterator<Item = &'_ NamedDataType> {
-        self.0.into_sorted_iter()
+        self.types.into_sorted_iter()
     }
 
     /// Return the unsorted iterator over the collection.
     pub fn into_unsorted_iter(&self) -> impl ExactSizeIterator<Item = &NamedDataType> {
-        self.0.into_unsorted_iter()
+        self.types.into_unsorted_iter()
     }
 
     /// Return an mutable iterator over the type collection.
@@ -204,7 +221,7 @@ impl ResolvedTypes {
     where
         F: FnMut(&mut NamedDataType),
     {
-        self.0.iter_mut(f);
+        self.types.iter_mut(f);
     }
 }
 

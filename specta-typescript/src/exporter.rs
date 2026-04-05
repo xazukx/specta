@@ -13,7 +13,7 @@ use specta::{
     datatype::{DataType, NamedDataType, Reference},
 };
 
-use crate::{Branded, Error, primitives, references};
+use crate::{Branded, Error, constants as const_export, primitives, references};
 
 /// Allows configuring the format of the final types file
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
@@ -217,6 +217,13 @@ impl Exporter {
             render_types(&mut out, self, types, "")?;
         }
 
+        // Constants
+        let constants = resolved_types.constants();
+        if !constants.is_empty() {
+            out.push('\n');
+            const_export::export_constants_internal(&mut out, self, constants)?;
+        }
+
         Ok(out)
     }
 
@@ -350,8 +357,9 @@ impl Exporter {
 
             let should_export_user_types =
                 !has_manually_exported_user_types && !root_types.is_empty();
+            let has_constants = !resolved_types.constants().is_empty();
 
-            if !runtime.is_empty() || should_export_user_types {
+            if !runtime.is_empty() || should_export_user_types || has_constants {
                 files.insert(runtime_path, {
                     let mut out = render_file_header(self)?;
                     let mut body = String::new();
@@ -397,6 +405,16 @@ impl Exporter {
                             out.push('\n');
                         }
                         out.push_str(&body);
+                    }
+
+                    // Constants
+                    if has_constants {
+                        out.push('\n');
+                        const_export::export_constants_internal(
+                            &mut out,
+                            self,
+                            resolved_types.constants(),
+                        )?;
                     }
 
                     out

@@ -13,6 +13,7 @@ macro_rules! register {
 }
 
 mod bound;
+mod constants;
 mod errors;
 mod functions;
 mod jsdoc;

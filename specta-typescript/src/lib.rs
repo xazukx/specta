@@ -48,6 +48,7 @@
 )]
 
 mod branded;
+pub mod constants;
 mod error;
 mod exporter;
 mod jsdoc;

@@ -1,8 +1,7 @@
 use std::path::PathBuf;
 
 use specta::{ResolvedTypes, Type, Types, datatype::NamedDataType};
-use specta_typescript::{Exporter, JSDoc, Layout, Typescript, primitives};
-use specta_util::selection;
+use specta_typescript::{Exporter, JSDoc, Layout, Typescript};
 
 // #[derive(Type)]
 // #[specta(rename = "bruh")]

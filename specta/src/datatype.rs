@@ -1,6 +1,7 @@
 //! Types related to working with [`DataType`]. Exposed for advanced users.
 
 mod attributes;
+mod constant;
 mod r#enum;
 mod fields;
 mod function;
@@ -13,6 +14,7 @@ mod r#struct;
 mod tuple;
 
 pub use attributes::Attributes;
+pub use constant::{ConstantValue, FloatBits};
 pub use r#enum::{Enum, Variant, VariantBuilder};
 pub use fields::{Field, Fields, NamedFields, StructBuilder, UnnamedFields};
 pub use function::Function;
