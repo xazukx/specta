@@ -1,0 +1,29 @@
+---
+source: specta-jsonschema/tests/references.rs
+assertion_line: 180
+expression: value
+---
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$defs": {
+    "TreeNode": {
+      "title": "TreeNode",
+      "type": "object",
+      "properties": {
+        "label": {
+          "type": "string"
+        },
+        "children": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/TreeNode"
+          }
+        }
+      },
+      "required": [
+        "label",
+        "children"
+      ]
+    }
+  }
+}

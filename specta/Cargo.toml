@@ -111,49 +111,48 @@ geozero = ["dep:geozero"]
 workspace = true
 
 [dependencies]
-specta-macros = { version = "=2.0.0-rc.24", optional = true, path = "../specta-macros" }
-paste = { version = "1", optional = true }
-
-ctor = { version = "0.8.0", default-features = false, optional = true, features = ["proc_macro"] }
+specta-macros = { workspace = true, optional = true }
+paste = { workspace = true, optional = true }
+ctor = { workspace = true, optional = true }
 
 # TODO: To be deprecated
-serde_json = { version = "1", optional = true, default-features = false, features = ["std"] }
-serde_yaml = { version = "0.9", optional = true, default-features = false, features = [] }
-toml = { version = "1.1", optional = true, default-features = false, features = ["serde"] }
-ulid = { version = "1", optional = true, default-features = false, features = [] }
-uuid = { version = "1", optional = true, default-features = false, features = [] } # TODO: Downgraded for Bevy (argh)
-chrono = { version = "0.4", optional = true, default-features = false, features = ["clock"] }
-time = { version = "0.3", optional = true, default-features = false, features = [] }
-bigdecimal = { version = "0.4", optional = true, default-features = false, features = [] }
-rust_decimal = { version = "1", optional = true, default-features = false, features = [] }
-indexmap = { version = "2", optional = true, default-features = false, features = ["std"] }     # TODO: Don't require `std`
-ordered-float = { version = ">=3, <6", optional = true, default-features = false }
-heapless = { version = ">=0.7, <0.10", optional = true, default-features = false, features = [] }
-semver = { version = "1", optional = true, default-features = false, features = [] }
-smol_str = { version = "0.3", optional = true, default-features = false, features = [] }
-arrayvec = { version = ">=0.6, <0.8", optional = true, default-features = false, features = [] }
-smallvec = { version = "1", optional = true, default-features = false, features = [] }
-ipnetwork = { version = "0.21", optional = true, default-features = false, features = [] }
-mac_address = { version = "1", optional = true, default-features = false, features = [] }
-bit-vec = { version = "0.9", optional = true, default-features = false, features = [] }
-bson = { version = "3", optional = true, default-features = false, features = ["compat-3-0-0"] }
-bytes = { version = "1", optional = true, default-features = false, features = [] }
-uhlc = { version = "0.9", optional = true, default-features = false, features = [] }
-bytesize = { version = "2", optional = true, default-features = false, features = [] }
-glam = { version = "0.32", optional = true, default-features = false, features = ["std"] }
-tokio = { version = "1", optional = true, default-features = false, features = ["sync"] }
-url = { version = "2", optional = true, default-features = false }
-either = { version = "1", optional = true, default-features = false }
-error-stack = { version = "0.7", optional = true, default-features = false }
-bevy_ecs = { version = "0.18", optional = true, default-features = false, features = ["std"] }
-bevy_input = { version = "0.18", optional = true, default-features = false, features = ["std", "bevy_reflect", "keyboard", "mouse"] }
-jiff = { version = "0.2", optional = true, default-features = false }
-camino = { version = "1", optional = true, default-features = false }
-geojson = { version = "1.0", optional = true, default-features = false }
-geozero = { version = "0.15", optional = true, default-features = false, features = ["with-mvt"] }
+serde_json = { workspace = true, optional = true }
+serde_yaml = { workspace = true, optional = true }
+toml = { workspace = true, optional = true }
+ulid = { workspace = true, optional = true }
+uuid = { workspace = true, optional = true } # TODO: Downgraded for Bevy (argh)
+chrono = { workspace = true, optional = true }
+time = { workspace = true, optional = true }
+bigdecimal = { workspace = true, optional = true }
+rust_decimal = { workspace = true, optional = true }
+indexmap = { workspace = true, optional = true }     # TODO: Don't require `std`
+ordered-float = { workspace = true, optional = true }
+heapless = { workspace = true, optional = true }
+semver = { workspace = true, optional = true }
+smol_str = { workspace = true, optional = true }
+arrayvec = { workspace = true, optional = true }
+smallvec = { workspace = true, optional = true }
+ipnetwork = { workspace = true, optional = true }
+mac_address = { workspace = true, optional = true }
+bit-vec = { workspace = true, optional = true }
+bson = { workspace = true, optional = true }
+bytes = { workspace = true, optional = true }
+uhlc = { workspace = true, optional = true }
+bytesize = { workspace = true, optional = true }
+glam = { workspace = true, optional = true }
+tokio = { workspace = true, optional = true }
+url = { workspace = true, optional = true }
+either = { workspace = true, optional = true }
+error-stack = { workspace = true, optional = true }
+bevy_ecs = { workspace = true, optional = true }
+bevy_input = { workspace = true, optional = true }
+jiff = { workspace = true, optional = true }
+camino = { workspace = true, optional = true }
+geojson = { workspace = true, optional = true }
+geozero = { workspace = true, optional = true }
 
 [dev-dependencies]
-serde = { version = "1", features = ["derive"] } # TODO: Can we remove this?
+serde = { workspace = true, features = ["derive"] } # TODO: Can we remove this?
 
 [build-dependencies]
-rustc_version = "0.4.1"
+rustc_version.workspace = true

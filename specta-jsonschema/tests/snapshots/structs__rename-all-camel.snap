@@ -1,0 +1,25 @@
+---
+source: specta-jsonschema/tests/structs.rs
+assertion_line: 157
+expression: "value[\"$defs\"][\"CamelCaseStruct\"]"
+---
+{
+  "title": "CamelCaseStruct",
+  "type": "object",
+  "properties": {
+    "firstName": {
+      "type": "string"
+    },
+    "lastName": {
+      "type": "string"
+    },
+    "isActive": {
+      "type": "boolean"
+    }
+  },
+  "required": [
+    "firstName",
+    "lastName",
+    "isActive"
+  ]
+}

@@ -1,0 +1,49 @@
+---
+source: specta-jsonschema/tests/enums.rs
+assertion_line: 240
+expression: value
+---
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$defs": {
+    "ExternallyTagged": {
+      "title": "ExternallyTagged",
+      "oneOf": [
+        {
+          "const": "Unit"
+        },
+        {
+          "type": "object",
+          "properties": {
+            "Tuple": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "Tuple"
+          ]
+        },
+        {
+          "type": "object",
+          "properties": {
+            "Struct": {
+              "type": "object",
+              "properties": {
+                "value": {
+                  "type": "integer",
+                  "format": "int32"
+                }
+              },
+              "required": [
+                "value"
+              ]
+            }
+          },
+          "required": [
+            "Struct"
+          ]
+        }
+      ]
+    }
+  }
+}

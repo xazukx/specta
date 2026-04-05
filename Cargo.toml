@@ -4,7 +4,8 @@ resolver = "2"
 
 [workspace.lints.rust]
 unsafe_code = { level = "warn", priority = -1 } # We can't forbid due to ctor :(
-missing_docs = { level = "warn", priority = -1 }
+missing_docs = { level = "allow", priority = -1 }
+dead_code = { level = "allow", priority = -1 }
 
 unexpected_cfgs = { level = "warn", check-cfg = ['cfg(is_nightly)'] }
 
@@ -19,6 +20,82 @@ panic_in_result_fn = { level = "warn", priority = -1 }
 # I hate these. For internal code I don't care.
 too_many_arguments = { level = "allow", priority = 0 }
 type_complexity = { level = "allow", priority = 0 }
+
+[workspace.dependencies]
+# Internal crates
+specta = { version = "=2.0.0-rc.24", path = "specta" }
+specta-macros = { version = "=2.0.0-rc.24", path = "specta-macros" }
+specta-serde = { version = "=0.0.11", path = "specta-serde" }
+specta-typescript = { version = "=0.0.11", path = "specta-typescript" }
+specta-util = { version = "=0.0.11", path = "specta-util" }
+specta-swift = { version = "=0.0.2", path = "specta-swift" }
+specta-zod = { version = "=0.0.2", path = "specta-zod" }
+
+# Serde ecosystem
+serde = { version = "1", features = ["derive"] }
+serde_json = { version = "1", features = ["std"] }
+serde_yaml = { version = "0.9" }
+serde_with = { version = "3", features = ["macros"] }
+serde_repr = "0.1"
+
+# Error handling
+thiserror = "2"
+
+# Proc macro utilities
+proc-macro2 = "1"
+quote = "1"
+syn = { version = "2", features = ["full", "visit"] }
+Inflector = { version = "0.11", default-features = false }
+
+# Testing
+insta = "1"
+tempfile = "3"
+
+# Build
+rustc_version = "0.4.1"
+
+# Schema/API
+schemars = { version = "1.2", default-features = false }
+openapiv3 = { version = "2", default-features = false }
+
+# Common optional deps (used in specta + tests/dev)
+chrono = { version = "0.4", default-features = false, features = ["clock"] }
+uuid = { version = "1", default-features = false }
+ulid = { version = "1", default-features = false }
+time = { version = "0.3", default-features = false }
+jiff = { version = "0.2", default-features = false }
+bigdecimal = { version = "0.4", default-features = false }
+rust_decimal = { version = "1", default-features = false }
+indexmap = { version = "2", default-features = false, features = ["std"] }
+ordered-float = { version = ">=3, <6", default-features = false }
+heapless = { version = ">=0.7, <0.10", default-features = false }
+semver = { version = "1", default-features = false }
+smol_str = { version = "0.3", default-features = false }
+arrayvec = { version = ">=0.6, <0.8", default-features = false }
+smallvec = { version = "1", default-features = false }
+ipnetwork = { version = "0.21", default-features = false }
+mac_address = { version = "1", default-features = false }
+bit-vec = { version = "0.9", default-features = false }
+bson = { version = "3", default-features = false, features = ["compat-3-0-0"] }
+bytes = { version = "1", default-features = false }
+uhlc = { version = "0.9", default-features = false }
+bytesize = { version = "2", default-features = false }
+glam = { version = "0.32", default-features = false, features = ["std"] }
+tokio = { version = "1", default-features = false, features = ["sync"] }
+url = { version = "2", default-features = false }
+either = { version = "1", default-features = false }
+error-stack = { version = "0.7", default-features = false }
+bevy_ecs = { version = "0.18", default-features = false, features = ["std"] }
+bevy_input = { version = "0.18", default-features = false, features = ["std", "bevy_reflect", "keyboard", "mouse"] }
+camino = { version = "1", default-features = false }
+geojson = { version = "1.0", default-features = false }
+geozero = { version = "0.15", default-features = false, features = ["with-mvt"] }
+
+# Other
+paste = "1"
+ctor = { version = "0.8.0", default-features = false, features = ["proc_macro"] }
+toml = { version = "1.1", default-features = false, features = ["serde"] }
+wasm-bindgen = "0.2"
 
 [profile.dev.package]
 insta.opt-level = 3

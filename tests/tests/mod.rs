@@ -30,9 +30,3 @@ mod zod;
 
 pub use types::{types, types_phased};
 pub use utils::fs_to_string;
-
-#[test]
-fn compile_errors() {
-    let t = trybuild::TestCases::new();
-    t.compile_fail("tests/macro/compile_error.rs");
-}

@@ -1,0 +1,61 @@
+---
+source: specta-jsonschema/tests/references.rs
+assertion_line: 171
+expression: value
+---
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$defs": {
+    "Address": {
+      "title": "Address",
+      "type": "object",
+      "properties": {
+        "street": {
+          "type": "string"
+        },
+        "city": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "street",
+        "city"
+      ]
+    },
+    "Event": {
+      "title": "Event",
+      "oneOf": [
+        {
+          "type": "object",
+          "properties": {
+            "kind": {
+              "const": "Click"
+            },
+            "target": {
+              "$ref": "#/$defs/Address"
+            }
+          },
+          "required": [
+            "kind",
+            "target"
+          ]
+        },
+        {
+          "type": "object",
+          "properties": {
+            "kind": {
+              "const": "Navigate"
+            },
+            "url": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "kind",
+            "url"
+          ]
+        }
+      ]
+    }
+  }
+}

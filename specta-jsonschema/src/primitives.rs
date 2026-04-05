@@ -9,13 +9,20 @@ use specta::{
 pub fn export(js: &JsonSchema, types: &Types, ndt: &NamedDataType) -> Result<Value, Error> {
     let mut schema = datatype_to_schema(js, types, ndt.ty(), true)?;
 
-    // Add title from type name and description from docs
     if let Some(obj) = schema.as_object_mut() {
-        obj.insert("title".to_string(), Value::String(ndt.name().to_string()));
+        obj.shift_insert(
+            0,
+            "title".to_string(),
+            Value::String(ndt.name().to_string()),
+        );
 
         let docs = ndt.docs();
         if !docs.is_empty() {
-            obj.insert("description".to_string(), Value::String(docs.to_string()));
+            obj.shift_insert(
+                1,
+                "description".to_string(),
+                Value::String(docs.to_string()),
+            );
         }
     }
 
@@ -80,24 +87,147 @@ pub fn datatype_to_schema(
                     Error::InvalidReference("Reference not found in Types".to_string())
                 })?;
 
-                // Inline types (e.g. String, Vec<T>) are always resolved directly,
-                // never emitted as $ref. This matches the TypeScript exporter's
-                // `r.inline()` check.
                 if is_definition || r.inline() {
-                    datatype_to_schema(js, types, referenced_ndt.ty(), is_definition)
+                    // When inlining a reference with generics, resolve them first
+                    let generics = r.generics();
+                    if !generics.is_empty() {
+                        let resolved = resolve_generics(referenced_ndt.ty(), generics);
+                        datatype_to_schema(js, types, &resolved, is_definition)
+                    } else {
+                        datatype_to_schema(js, types, referenced_ndt.ty(), is_definition)
+                    }
                 } else {
-                    let defs_key = js.schema_version.definitions_key();
-                    Ok(json!({
-                        "$ref": format!("#/{}/{}", defs_key, referenced_ndt.name())
-                    }))
+                    let ref_uri = js.build_ref(&referenced_ndt.name());
+                    Ok(json!({ "$ref": ref_uri }))
                 }
             }
             Reference::Opaque(_) => Err(Error::UnsupportedDataType(
                 "Opaque references are not supported by JSON Schema exporter".to_string(),
             )),
-            Reference::Generic(_) => Ok(json!({})),
+            Reference::Generic(g) => {
+                // Try the thread-local generics scope. If not found, emit empty schema.
+                GENERICS_SCOPE.with(|scope| {
+                    let scope = scope.borrow();
+                    if let Some(resolved_dt) =
+                        scope.iter().rev().find(|(ge, _)| ge == g).map(|(_, dt)| dt)
+                    {
+                        datatype_to_schema(js, types, resolved_dt, false)
+                    } else {
+                        Ok(json!({}))
+                    }
+                })
+            }
         },
     }
+}
+
+// Thread-local generics scope for resolving generic references during export.
+thread_local! {
+    static GENERICS_SCOPE: std::cell::RefCell<Vec<(GenericReference, DataType)>> =
+        std::cell::RefCell::new(Vec::new());
+}
+
+/// Resolve generic type parameters in a DataType.
+///
+/// This is ported from the TypeScript exporter's `resolve_generics_in_datatype`.
+/// It recursively walks the type tree and replaces `Reference::Generic(g)` with
+/// the concrete type from the generics list.
+fn resolve_generics(dt: &DataType, generics: &[(GenericReference, DataType)]) -> DataType {
+    fn resolve(
+        dt: &DataType,
+        generics: &[(GenericReference, DataType)],
+        visiting: &mut Vec<GenericReference>,
+    ) -> DataType {
+        match dt {
+            DataType::Primitive(_) => dt.clone(),
+            DataType::List(l) => {
+                let mut out = l.clone();
+                out.set_ty(resolve(l.ty(), generics, visiting));
+                DataType::List(out)
+            }
+            DataType::Map(m) => {
+                let mut out = m.clone();
+                out.set_key_ty(resolve(m.key_ty(), generics, visiting));
+                out.set_value_ty(resolve(m.value_ty(), generics, visiting));
+                DataType::Map(out)
+            }
+            DataType::Nullable(inner) => {
+                DataType::Nullable(Box::new(resolve(inner, generics, visiting)))
+            }
+            DataType::Struct(st) => {
+                let mut out = st.clone();
+                match out.fields_mut() {
+                    Fields::Unit => {}
+                    Fields::Unnamed(unnamed) => {
+                        for field in unnamed.fields_mut() {
+                            if let Some(ty) = field.ty_mut() {
+                                *ty = resolve(ty, generics, visiting);
+                            }
+                        }
+                    }
+                    Fields::Named(named) => {
+                        for (_, field) in named.fields_mut() {
+                            if let Some(ty) = field.ty_mut() {
+                                *ty = resolve(ty, generics, visiting);
+                            }
+                        }
+                    }
+                }
+                DataType::Struct(out)
+            }
+            DataType::Enum(en) => {
+                let mut out = en.clone();
+                for (_, variant) in out.variants_mut() {
+                    match variant.fields_mut() {
+                        Fields::Unit => {}
+                        Fields::Unnamed(unnamed) => {
+                            for field in unnamed.fields_mut() {
+                                if let Some(ty) = field.ty_mut() {
+                                    *ty = resolve(ty, generics, visiting);
+                                }
+                            }
+                        }
+                        Fields::Named(named) => {
+                            for (_, field) in named.fields_mut() {
+                                if let Some(ty) = field.ty_mut() {
+                                    *ty = resolve(ty, generics, visiting);
+                                }
+                            }
+                        }
+                    }
+                }
+                DataType::Enum(out)
+            }
+            DataType::Tuple(t) => {
+                let mut out = t.clone();
+                for element in out.elements_mut() {
+                    *element = resolve(element, generics, visiting);
+                }
+                DataType::Tuple(out)
+            }
+            DataType::Reference(Reference::Generic(g)) => {
+                if visiting.iter().any(|seen| seen == g) {
+                    return dt.clone();
+                }
+                if let Some((_, resolved_dt)) = generics.iter().find(|(ge, _)| ge == g) {
+                    if matches!(resolved_dt, DataType::Reference(Reference::Generic(inner)) if inner == g)
+                    {
+                        dt.clone()
+                    } else {
+                        visiting.push(g.clone());
+                        let out = resolve(resolved_dt, generics, visiting);
+                        visiting.pop();
+                        out
+                    }
+                } else {
+                    dt.clone()
+                }
+            }
+            DataType::Reference(_) => dt.clone(),
+        }
+    }
+
+    resolve(dt, generics, &mut Vec::new())
 }
 
 fn primitive_to_schema(p: &Primitive) -> Value {
@@ -127,7 +257,10 @@ fn primitive_to_schema(p: &Primitive) -> Value {
     }
 }
 
-/// Build a JSON Schema object from named fields, supporting flattened fields via allOf.
+/// Build a JSON Schema object from named fields, supporting:
+/// - flattened fields via `allOf`
+/// - `additionalProperties: false` when no fields are flattened
+/// - `description` on individual properties from doc comments
 fn named_fields_to_schema(
     js: &JsonSchema,
     types: &Types,
@@ -145,7 +278,16 @@ fn named_fields_to_schema(
         if field.flatten() {
             all_of_parts.push(datatype_to_schema(js, types, ty, false)?);
         } else {
-            let schema = datatype_to_schema(js, types, ty, false)?;
+            let mut schema = datatype_to_schema(js, types, ty, false)?;
+
+            // #12: Add description from field doc comments
+            let docs = field.docs();
+            if !docs.is_empty() {
+                if let Some(obj) = schema.as_object_mut() {
+                    obj.insert("description".to_string(), Value::String(docs.to_string()));
+                }
+            }
+
             properties.insert(name.clone().into_owned(), schema);
             if !field.optional() {
                 required.push(Value::String(name.clone().into_owned()));
@@ -215,10 +357,8 @@ fn enum_to_schema(js: &JsonSchema, types: &Types, e: &Enum) -> Result<Value, Err
         .all(|(_, v)| matches!(v.fields(), Fields::Unit))
     {
         if filtered.len() == 1 {
-            // Single literal: {"const": "X"}
             return Ok(json!({"const": filtered[0].0.as_ref()}));
         }
-        // Multiple literals: {"enum": ["A", "B", "C"]}
         let names: Vec<Value> = filtered
             .iter()
             .map(|(name, _)| Value::String(name.to_string()))
@@ -235,7 +375,9 @@ fn enum_to_schema(js: &JsonSchema, types: &Types, e: &Enum) -> Result<Value, Err
     if variants.len() == 1 {
         Ok(variants.into_iter().next().unwrap())
     } else {
-        Ok(json!({"anyOf": variants}))
+        // #14: Use oneOf or anyOf based on configuration
+        let key = if js.use_one_of { "oneOf" } else { "anyOf" };
+        Ok(json!({ key: variants }))
     }
 }
 
@@ -251,13 +393,8 @@ fn variant_to_schema(
     variant: &Variant,
 ) -> Result<Value, Error> {
     match variant.fields() {
-        Fields::Unit => {
-            // Unit variant = string literal constant
-            Ok(json!({"const": name}))
-        }
+        Fields::Unit => Ok(json!({"const": name})),
         Fields::Unnamed(fields) => {
-            // After serde transformation, unnamed fields contain the variant's
-            // wire representation. A single field is unwrapped directly.
             let items: Result<Vec<_>, _> = fields
                 .fields()
                 .iter()
@@ -279,11 +416,7 @@ fn variant_to_schema(
                 }))
             }
         }
-        Fields::Named(fields) => {
-            // After serde transformation, named fields contain the full object
-            // structure including any tag/content fields from the tagging mode.
-            named_fields_to_schema(js, types, fields)
-        }
+        Fields::Named(fields) => named_fields_to_schema(js, types, fields),
     }
 }
 

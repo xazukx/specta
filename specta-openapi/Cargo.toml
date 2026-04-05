@@ -20,5 +20,5 @@ rustdoc-args = ["--cfg", "docsrs"]
 workspace = true
 
 [dependencies]
-specta = { version = "=2.0.0-rc.24", path = "../specta" }
-openapiv3 = { version = "2", default-features = false, features = [] }
+specta.workspace = true
+openapiv3.workspace = true

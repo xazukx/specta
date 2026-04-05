@@ -37,10 +37,15 @@ fn schema_object_to_datatype(obj: &JsonMap<String, Value>) -> Result<DataType, E
         return Ok(DataType::Reference(Reference::opaque(reference.to_owned())));
     }
 
-    // Handle const values (literals)
-    if obj.get("const").is_some() {
-        // Specta does not currently expose a direct literal DataType variant.
-        return Ok(DataType::Primitive(Primitive::str));
+    // Handle const values (literals) — create a single-variant unit enum
+    if let Some(const_val) = obj.get("const") {
+        let name = match const_val {
+            Value::String(s) => s.clone(),
+            other => other.to_string(),
+        };
+        let mut e = Enum::new();
+        e.variants_mut().push((Cow::Owned(name), Variant::unit()));
+        return Ok(DataType::Enum(e));
     }
 
     // Handle enum values (for string enums)

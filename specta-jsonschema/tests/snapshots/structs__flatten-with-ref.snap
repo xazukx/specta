@@ -1,0 +1,24 @@
+---
+source: specta-jsonschema/tests/structs.rs
+assertion_line: 149
+expression: "value[\"$defs\"][\"Document\"]"
+---
+{
+  "title": "Document",
+  "allOf": [
+    {
+      "type": "object",
+      "properties": {
+        "title": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "title"
+      ]
+    },
+    {
+      "$ref": "#/$defs/Metadata"
+    }
+  ]
+}

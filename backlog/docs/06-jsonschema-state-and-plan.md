@@ -1,12 +1,12 @@
-# JSON Schema Exporter: Current State and Implementation Plan
+# JSON Schema Exporter: Current State
 
-## Status: Research / Backlog
+## Status: Active Development
 
 ---
 
 ## Current State
 
-The specta-jsonschema exporter is **functional but incomplete**. It supports core JSON Schema constructs and three draft versions, but has notable gaps in enum tagging support and reference handling. The crate has `#![allow(warnings)]` at the top, indicating the author considers it a work in progress.
+The specta-jsonschema exporter is **functional and covers most common use cases**. It supports core JSON Schema constructs, three draft versions, all four serde enum tagging modes, flattened fields, `$id`, `oneOf`, `additionalProperties`, field descriptions, external references, and proper inline/generic type resolution.
 
 ### Schema Versions Supported
 
@@ -16,29 +16,18 @@ The specta-jsonschema exporter is **functional but incomplete**. It supports cor
 | **Draft 2019-09** | `https://json-schema.org/draft/2019-09/schema` | `$defs` |
 | **Draft 2020-12** | `https://json-schema.org/draft/2020-12/schema` | `$defs` |
 
-### Currently Supported Constructs
+### Supported Constructs
 
 #### Primitives (fully supported)
 
-| Rust Type | JSON Schema Output |
-|---|---|
-| `bool` | `{"type": "boolean"}` |
-| `String` | `{"type": "string"}` |
-| `char` | `{"type": "string", "minLength": 1, "maxLength": 1}` |
-| `i8` | `{"type": "integer", "minimum": -128, "maximum": 127}` |
-| `i16` | `{"type": "integer", "minimum": -32768, "maximum": 32767}` |
-| `i32` | `{"type": "integer", "format": "int32"}` |
-| `i64` | `{"type": "integer", "format": "int64"}` |
-| `u32` | `{"type": "integer", "minimum": 0, "format": "uint32"}` |
-| `f32` | `{"type": "number", "format": "float"}` |
-| `f64` | `{"type": "number", "format": "double"}` |
+All Rust integer (i8–i128, u8–u128, isize, usize), float (f16, f32, f64, f128), bool, char, and str types are mapped to appropriate JSON Schema types with format and min/max annotations.
 
 #### Collections
 
 | Rust Type | JSON Schema Output |
 |---|---|
 | `Vec<T>` | `{"type": "array", "items": <T>}` |
-| `[T; N]` | `{"type": "array", "prefixItems": [...], "minItems": N, "maxItems": N, "items": false}` |
+| `[T; N]` | `{"type": "array", "items": <T>, "minItems": N, "maxItems": N}` |
 | `(T1, T2)` | `{"type": "array", "prefixItems": [...], "minItems": N, "maxItems": N, "items": false}` |
 | `HashMap<K, V>` | `{"type": "object", "additionalProperties": <V>}` |
 | `()` | `{"type": "null"}` |
@@ -49,16 +38,19 @@ The specta-jsonschema exporter is **functional but incomplete**. It supports cor
 |---|---|
 | Unit struct | `{"type": "null"}` |
 | Tuple struct | `{"type": "array", "prefixItems": [...]}` |
-| Named struct | `{"type": "object", "properties": {...}, "required": [...]}` |
+| Named struct | `{"type": "object", "properties": {...}, "required": [...], "additionalProperties": false}` |
+| Struct with `#[serde(flatten)]` | `{"allOf": [{own fields}, {$ref to flattened type}]}` (no additionalProperties: false) |
 
-#### Enums (partially supported -- external tagging only)
+#### Enums (all serde tagging modes via specta-serde)
 
 | Pattern | JSON Schema Output |
 |---|---|
-| Unit variant | `{"const": "VariantName"}` |
-| Tuple variant | `{"type": "object", "required": ["Name"], "properties": {"Name": ...}, "additionalProperties": false}` |
-| Named variant | `{"type": "object", "required": ["Name"], "properties": {"Name": ...}, "additionalProperties": false}` |
-| Multiple variants | `{"anyOf": [...]}` |
+| String-only (multi) | `{"enum": ["A", "B", "C"]}` |
+| Single literal (tag) | `{"const": "VariantName"}` |
+| External tagging | `{"anyOf": [...variants...]}` |
+| Internal tagging | `{"anyOf": [{object with merged tag field}, ...]}` |
+| Adjacent tagging | `{"anyOf": [{object with tag + content fields}, ...]}` |
+| Untagged | `{"anyOf": [<raw type 1>, <raw type 2>]}` |
 
 #### Nullable Types
 
@@ -74,210 +66,86 @@ JsonSchema::new()
     .layout(Layout::Files)                        // SingleFile or Files
     .title("My Schema")                           // Root title
     .description("Description")                   // Root description
+    .base_uri("https://example.com/schemas")      // $id on root; absolute URIs in Files
+    .one_of(true)                                 // Use oneOf instead of anyOf
+    .external_ref("TypeName", "https://...")       // External $ref override
 ```
 
-### Test Coverage
-
-Tests exist but are minimal:
-- `test_basic_export` -- basic struct + enum export
-- `test_schema_version` -- URI verification
-- `test_primitives` -- primitive type mapping
-- `test_nullable` -- Option handling
-- `test_enum` -- simple enum variants
-
-No snapshot tests, no complex nested types, no tagging variation tests.
-
----
-
-## `$id`, `$anchor`, `$ref`, and Definitions Handling
-
-### `$ref` -- How References Work
-
-**Supported.** References are generated for named types using fragment-only JSON pointers.
-
-The code in `specta-jsonschema/src/primitives.rs` (lines 90-95) generates references:
-
-```rust
-let defs_key = js.schema_version.definitions_key();
-if let Some(referenced_ndt) = r.get(types) {
-    Ok(json!({
-        "$ref": format!("#/{}/{}", defs_key, referenced_ndt.name())
-    }))
-}
-```
-
-**Format by draft version:**
-- Draft 7: `{"$ref": "#/definitions/TypeName"}`
-- Draft 2019-09: `{"$ref": "#/$defs/TypeName"}`
-- Draft 2020-12: `{"$ref": "#/$defs/TypeName"}`
-
-All references are **fragment-only** (same-document with `#` prefix). No external URI references are supported.
-
-### `definitions` / `$defs` -- How the Definitions Map is Built
-
-**Supported.** The definitions key adapts automatically based on `SchemaVersion`.
-
-The code in `specta-jsonschema/src/json_schema.rs` (lines 91-106) builds definitions:
-
-```rust
-fn export_single_file(&self, types: &Types) -> Result<Value, Error> {
-    let mut definitions = BTreeMap::new();
-    for ndt in types.into_sorted_iter() {
-        let schema = primitives::export(self, types, &ndt)?;
-        let name = ndt.name().to_string();
-        definitions.insert(name, schema);
-    }
-    let defs_key = self.schema_version.definitions_key();
-    let mut root = serde_json::json!({
-        "$schema": self.schema_version.uri(),
-        defs_key: definitions,
-    });
-    // ...
-}
-```
-
-**SingleFile layout** produces:
-```json
-{
-  "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$defs": {
-    "User": { "type": "object", "properties": { ... } },
-    "Role": { "anyOf": [ ... ] }
-  }
-}
-```
-
-**Files layout** produces one `.schema.json` per type, with each file containing just that type's schema and a `$schema` keyword -- but **no definitions section** in individual files.
-
-### `$id` -- Not Supported
-
-**Not implemented.** The codebase contains no handling of `$id` anywhere:
-
-- No `$id` is assigned to the root schema document
-- No `$id` is assigned to individual definition entries
-- No `$id` is assigned to individual files in `Files` layout
-- No configuration option exists for a base URI
-
-This means:
-- Schemas can only be referenced via fragment (`#/definitions/...`), not by URI
-- In `Files` layout, `$ref` pointers to `#/$defs/TypeName` are **broken** because the definitions don't exist in the individual files
-- No way to compose schemas across multiple documents using URI references
-
-### `$anchor` -- Not Supported
-
-**Not implemented.** The `$anchor` keyword (introduced in Draft 2019-09) is not generated or supported in any way. This means:
-- Types can only be referenced by their JSON Pointer path, not by anchor name
-- No way to create stable reference targets independent of document structure
-
-### Reference Types Summary
+### Reference Handling
 
 | JSON Schema Keyword | Supported? | Notes |
 |---|---|---|
-| `$ref` (fragment) | Yes | `#/definitions/Name` or `#/$defs/Name` |
-| `$ref` (external URI) | No | No external references |
-| `$id` (root) | No | No base URI |
-| `$id` (per definition) | No | Definitions have no identity |
-| `$anchor` | No | Not implemented |
-| `definitions` (Draft 7) | Yes | Automatic based on schema version |
-| `$defs` (2019-09+) | Yes | Automatic based on schema version |
+| `$ref` (fragment) | **Yes** | `#/definitions/Name` or `#/$defs/Name` |
+| `$ref` (file-relative) | **Yes** | `./Name.schema.json` in Files layout |
+| `$ref` (absolute URI) | **Yes** | When `base_uri` is set in Files layout |
+| `$ref` (external) | **Yes** | Via `.external_ref()` configuration |
+| `$id` (root) | **Yes** | Via `.base_uri()` configuration |
+| `$id` (per file) | **Yes** | In Files layout with `base_uri` |
+| `definitions` (Draft 7) | **Yes** | Automatic based on schema version |
+| `$defs` (2019-09+) | **Yes** | Automatic based on schema version |
+| Inline types | **Yes** | `String`, `Vec<T>`, etc. resolve directly, never as `$ref` |
+| Generic references | **Yes** | Resolved via `resolve_generics` when inlining |
+| Circular references | **Yes** | Self-referential types use `$ref` naturally |
 
-### Reference Customization
+### Struct Field Features
 
-**Very limited.** There is no way to:
-- Set a custom base URI for `$ref` targets
-- Change the `$ref` prefix format
-- Use external references instead of fragments
-- Add `$id` to definitions or files
+- **`additionalProperties: false`** — emitted on all object schemas that don't use `#[serde(flatten)]`
+- **`title`** — on every definition, from the Rust type name
+- **`description`** — on definitions from type-level doc comments; on properties from field-level doc comments
+- **`allOf`** — for structs with `#[serde(flatten)]` fields
 
-The only configurable aspect is the definitions key (`definitions` vs `$defs`), which changes automatically based on `SchemaVersion`.
+### Test Coverage (45 tests)
 
-### Opaque and Generic References
-
-- **Named references**: Work correctly via `$ref`
-- **Generic references**: Produce empty schema `{}` (accepts anything) -- a placeholder
-- **Opaque references**: Produce an error: "Opaque references are not supported by JSON Schema exporter"
-
----
-
-## Known Limitations
-
-1. **Enum tagging** -- Only **external tagging** is supported. No support for:
-   - Internal tagging (`#[serde(tag = "type")]`)
-   - Adjacent tagging (`#[serde(tag = "t", content = "c")]`)
-   - Untagged (`#[serde(untagged)]`)
-2. **No `$id` or `$anchor`** -- Cannot compose schemas across documents or create stable reference targets
-3. **Files layout references are broken** -- `$ref` points to local `#/$defs/...` paths that don't exist in individual files
-4. **Generic references** -- Produce empty schema `{}` instead of proper resolution
-5. **No `allOf` support** -- Flattened fields not properly represented
-6. **No `oneOf`** -- Uses `anyOf` exclusively (less strict validation for discriminated unions)
-7. **No `title`/`description` on definitions** -- Only at root level
-8. **No `examples` or `default`** generation
-9. **No `pattern` or `enum` (array form)** generation
-10. **Suppressed warnings** -- `#![allow(warnings)]` indicates known incomplete state
-11. **Import `const` handling** -- Maps `const` values to string type (not true literal support)
+- Basic export, schema versions, primitives, nullable, enums
+- String enum optimization (`enum` array form, `const` for single literals)
+- Title/description on definitions
+- All four enum tagging modes (internal, adjacent, untagged, external) with serde
+- Flattened struct fields with `allOf`
+- Inline types not producing `$ref` or appearing in definitions
+- References between structs and in enum variants
+- `serde(rename_all)` (camelCase, SCREAMING_SNAKE_CASE)
+- `$id` / `base_uri` configuration
+- Files layout reference paths
+- External `$ref` overrides
+- `additionalProperties: false` with and without flatten
+- `oneOf` option
+- Circular / self-referential types
+- Import `const` handling
+- Field-level descriptions
+- 10+ snapshot tests for stable output verification
 
 ---
 
-## Implementation Plan: Complete JSON Schema Support
+## Implementation Status Summary
 
-### Phase 1: Enum Tagging Support (Priority: Critical)
+### Phase 1: Enum Tagging Support — **COMPLETE**
+All four serde tagging modes work via `specta_serde::apply()`.
 
-This is the largest gap in the current implementation.
+### Phase 2: Reference and Identity Support — **MOSTLY COMPLETE**
+- ✅ `$id` on root schema
+- ✅ `$id` per file in Files layout
+- ✅ Files layout references fixed (relative + absolute)
+- ✅ External `$ref` support
+- ❌ `$anchor` support (see backlog)
 
-1. **Implement internal tagging** (`#[serde(tag = "type")]`)
-   - Unit variants: `{"type": "object", "required": ["type"], "properties": {"type": {"const": "VariantName"}}}`
-   - Named variants: merge tag field into the variant object's properties
-   - Tuple variants: not supported by serde with internal tagging (error)
+### Phase 3: Struct Field Improvements — **MOSTLY COMPLETE**
+- ✅ `allOf` for flattened fields
+- ✅ `additionalProperties: false` (when no flatten)
+- ✅ `description` on individual properties
+- ❌ `default` values (requires upstream specta changes)
 
-2. **Implement adjacent tagging** (`#[serde(tag = "t", content = "c")]`)
-   - All variants: `{"type": "object", "required": ["t", "c"], "properties": {"t": {"const": "VariantName"}, "c": <content schema>}}`
+### Phase 4: Validation Keywords — **PARTIALLY COMPLETE**
+- ✅ `oneOf` option
+- ✅ `enum` array form
+- ❌ `pattern` support (requires upstream specta changes)
+- ❌ `minItems`/`maxItems` for Vec (requires upstream specta changes)
 
-3. **Implement untagged enums** (`#[serde(untagged)]`)
-   - Use `anyOf` with just the inner type schemas (no wrapping object)
-   - Consider using `oneOf` for stricter validation
+### Phase 5: Reference and Generic Handling — **COMPLETE**
+- ✅ Generic reference resolution
+- ✅ Circular reference support
+- ✅ Import `const` handling improved
 
-4. **Add enum representation detection** -- read serde attributes to determine which tagging style to use (the serde processor already provides this information via specta-serde)
-
-### Phase 2: Reference and Identity Support (Priority: High)
-
-5. **Add `$id` to root schema** -- configurable base URI (e.g., `https://example.com/schemas/`)
-6. **Add `$id` to individual definitions** -- compose base URI + type name (e.g., `https://example.com/schemas/User`)
-7. **Fix Files layout references** -- when emitting separate files, use either:
-   - Relative file URI references (`{"$ref": "./User.schema.json"}`)
-   - Absolute URI references if base URI is configured
-8. **Add `$anchor` support** -- allow types to define stable anchors independent of document structure
-9. **Support external `$ref`** -- allow referencing schemas in other files/URIs
-
-### Phase 3: Struct Field Improvements (Priority: High)
-
-10. **Implement `allOf` for flattened fields** -- when a struct has `#[serde(flatten)]` fields, combine schemas using `allOf`
-11. **Add `additionalProperties: false`** option for strict object schemas
-12. **Support `description` on individual properties** -- if specta carries doc comments, propagate them to JSON Schema `description`
-13. **Support `default` values** -- if fields have `#[serde(default)]` with known values, emit `"default"` in the schema
-
-### Phase 4: Validation Keywords (Priority: Medium)
-
-14. **Add `oneOf` as an option** -- for discriminated unions (internally tagged enums), `oneOf` is more semantically correct than `anyOf`
-15. **Add `enum` (array form)** -- for simple string/number enums, emit `{"enum": ["A", "B", "C"]}` instead of `{"anyOf": [{"const": "A"}, ...]}`
-16. **Add `pattern` support** -- if specta types carry regex metadata
-17. **Add `minItems`/`maxItems` for Vec** -- if specta types carry length constraints
-
-### Phase 5: Reference and Generic Handling (Priority: Medium)
-
-18. **Resolve generic references properly** -- instead of empty schema `{}`, either inline the resolved type or use `$ref` with the concrete type name
-19. **Support circular references** -- ensure recursive types work correctly with `$ref`
-20. **Improve import `const` handling** -- map `const` to proper literal types instead of string
-
-### Phase 6: Output Quality (Priority: Low)
-
-21. **Add `title` to definitions** -- each definition should carry its Rust type name as `title`
-22. **Add `examples`** -- if specta types carry example values
-23. **Remove `#![allow(warnings)]`** -- fix all warnings once implementation is more complete
-24. **Add comprehensive snapshot tests** -- cover all tagging styles, nested types, generics, and edge cases
-25. **Validate output against JSON Schema meta-schema** -- ensure generated schemas are valid JSON Schema documents
-
-### Phase 7: Compatibility and Ecosystem (Priority: Low)
-
-26. **Test interop with popular validators** -- ensure output works with ajv, jsonschema (Python), and other popular validators
-27. **Add OpenAPI 3.x compatibility mode** -- OpenAPI uses a subset/superset of JSON Schema; consider an option to emit compatible output
-28. **Improve import functionality** -- support `allOf`, proper literal types, and complex union patterns
+### Phase 6: Output Quality — **COMPLETE**
+- ✅ `title` on definitions
+- ✅ `#![allow(warnings)]` removed
+- ✅ Comprehensive snapshot tests

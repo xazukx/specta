@@ -3,7 +3,7 @@ use serde::{Deserialize, Serialize};
 /// JSON Schema version specification
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub enum SchemaVersion {
-    /// JSON Schema Draft 7 (2018) - Most widely supported
+    /// JSON Schema Draft 7 (2018)
     Draft7,
     /// JSON Schema Draft 2019-09
     Draft2019_09,
@@ -33,6 +33,6 @@ impl SchemaVersion {
 
 impl Default for SchemaVersion {
     fn default() -> Self {
-        Self::Draft7
+        Self::Draft2020_12
     }
 }

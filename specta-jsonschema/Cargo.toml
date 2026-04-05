@@ -23,15 +23,16 @@ workspace = true
 default = []
 
 [dependencies]
-specta = { version = "=2.0.0-rc.24", path = "../specta" }
-schemars = { version = "1.2", default-features = false }
-serde = { version = "1", features = ["derive"] }
-serde_json = "1"
-thiserror = "2"
+specta.workspace = true
+schemars.workspace = true
+serde = { workspace = true, features = ["derive"] }
+serde_json = { workspace = true, features = ["preserve_order"] }
+thiserror.workspace = true
 
 [dev-dependencies]
-specta = { version = "=2.0.0-rc.24", path = "../specta", features = ["derive", "collect"] }
-specta-serde = { path = "../specta-serde" }
-specta-util = { path = "../specta-util", features = ["serde"] }
-serde = { version = "1", features = ["derive"] }
-insta = { version = "1", features = ["json"] }
+specta = { workspace = true, features = ["derive", "collect"] }
+specta-serde.workspace = true
+specta-util = { workspace = true, features = ["serde"] }
+serde = { workspace = true, features = ["derive"] }
+insta = { workspace = true, features = ["json"] }
+tempfile.workspace = true

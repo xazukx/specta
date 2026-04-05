@@ -26,10 +26,10 @@ default = []
 serde = ["dep:serde"]
 
 [dependencies]
-specta = { version = "=2.0.0-rc.24", path = "../specta" }
-serde = { version = "1", default-features = false, optional = true }
+specta.workspace = true
+serde = { workspace = true, optional = true }
 
 [dev-dependencies]
-serde = { version = "1", features = ["derive"] }
-specta = { version = "=2.0.0-rc.24", path = "../specta", features = ["derive", "collect"] }
-specta-util = { path = "../specta-util", features = ["serde"] }
+serde = { workspace = true, features = ["derive"] }
+specta = { workspace = true, features = ["derive", "collect"] }
+specta-util = { workspace = true, features = ["serde"] }

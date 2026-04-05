@@ -1,0 +1,24 @@
+---
+source: specta-jsonschema/tests/structs.rs
+assertion_line: 139
+expression: "value[\"$defs\"][\"Extended\"]"
+---
+{
+  "title": "Extended",
+  "allOf": [
+    {
+      "type": "object",
+      "properties": {
+        "extra": {
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "extra"
+      ]
+    },
+    {
+      "$ref": "#/$defs/Base"
+    }
+  ]
+}

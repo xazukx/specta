@@ -1,0 +1,46 @@
+---
+source: specta-jsonschema/tests/enums.rs
+assertion_line: 216
+expression: value
+---
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$defs": {
+    "InternallyTagged": {
+      "title": "InternallyTagged",
+      "oneOf": [
+        {
+          "type": "object",
+          "properties": {
+            "type": {
+              "const": "UnitVariant"
+            }
+          },
+          "required": [
+            "type"
+          ]
+        },
+        {
+          "type": "object",
+          "properties": {
+            "type": {
+              "const": "Named"
+            },
+            "code": {
+              "type": "integer",
+              "format": "int32"
+            },
+            "message": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "type",
+            "code",
+            "message"
+          ]
+        }
+      ]
+    }
+  }
+}

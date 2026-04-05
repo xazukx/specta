@@ -26,6 +26,6 @@ serde = ["dep:serde"]
 workspace = true
 
 [dependencies]
-specta = { version = "=2.0.0-rc.24", path = "../specta" }
-serde = { version = "1", optional = true, default-features = false }
-serde_json = { version = "1", optional = true, default-features = false, features = ["std"] }
+specta.workspace = true
+serde = { workspace = true, optional = true }
+serde_json = { workspace = true, optional = true }

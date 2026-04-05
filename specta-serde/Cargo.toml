@@ -19,9 +19,9 @@ rustdoc-args = ["--cfg", "docsrs"]
 workspace = true
 
 [dependencies]
-specta = { version = "=2.0.0-rc.24", path = "../specta" }
-specta-macros = { version = "=2.0.0-rc.24", path = "../specta-macros", features = ["serde"] }
+specta.workspace = true
+specta-macros = { workspace = true, features = ["serde"] }
 
 [dev-dependencies]
-specta = { version = "=2.0.0-rc.24", path = "../specta", features = ["derive"] }
-serde = { version = "1", features = ["derive"] }
+specta = { workspace = true, features = ["derive"] }
+serde = { workspace = true, features = ["derive"] }

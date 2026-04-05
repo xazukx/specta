@@ -1,0 +1,22 @@
+---
+source: specta-jsonschema/tests/enums.rs
+assertion_line: 232
+expression: value
+---
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$defs": {
+    "Untagged": {
+      "title": "Untagged",
+      "oneOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "integer",
+          "format": "int32"
+        }
+      ]
+    }
+  }
+}

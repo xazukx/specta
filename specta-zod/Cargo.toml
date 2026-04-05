@@ -26,12 +26,12 @@ default = []
 serde = ["dep:serde"]
 
 [dependencies]
-specta = { version = "=2.0.0-rc.24", path = "../specta" }
-serde = { version = "1", default-features = false, optional = true }
-specta-typescript = { version = "=0.0.11", path = "../specta-typescript" }
+specta.workspace = true
+serde = { workspace = true, optional = true }
+specta-typescript.workspace = true
 # TODO: Don't depend on serde
-specta-serde = { version = "=0.0.11", path = "../specta-serde" }
-thiserror = "2" # TODO: Remove this
+specta-serde.workspace = true
+thiserror.workspace = true # TODO: Remove this
 
 [dev-dependencies]
-specta-util = { path = "../specta-util" }
+specta-util.workspace = true
