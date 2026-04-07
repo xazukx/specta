@@ -31,10 +31,20 @@ fn enum_string_raw_value(variant: &Variant) -> Option<&str> {
 }
 
 fn resolved_string_enum(e: &Enum) -> Option<Vec<(&str, &str)>> {
+    // Only treat as a string enum if serde repr processing was applied.
+    // Without serde, unit enums are just regular enums without string raw values.
+    let serde_processed = e.attributes().contains_key("specta:serde_repr");
+
     e.variants()
         .iter()
-        .map(|(variant_name, variant)| {
-            enum_string_raw_value(variant).map(|raw| (variant_name.as_ref(), raw))
+        .map(|(variant_name, variant)| match variant.fields() {
+            // Unit variants carry their serialized name as the variant key
+            // (only when serde processing was applied)
+            Fields::Unit if serde_processed => {
+                Some((variant_name.as_ref(), variant_name.as_ref()))
+            }
+            Fields::Unit => None,
+            _ => enum_string_raw_value(variant).map(|raw| (variant_name.as_ref(), raw)),
         })
         .collect()
 }
@@ -455,8 +465,8 @@ fn enum_to_swift(
         match variant.fields() {
             specta::datatype::Fields::Unit => {
                 if is_string_enum {
-                    let raw_value = enum_string_raw_value(variant)
-                        .expect("string enum variants should have string literal payloads");
+                    // For unit variants, the serialized value is the variant name (key)
+                    let raw_value = original_variant_name.as_ref();
                     result.push_str(&format!("    case {} = \"{}\"\n", variant_name, raw_value));
                 } else {
                     result.push_str(&format!("    case {}\n", variant_name));

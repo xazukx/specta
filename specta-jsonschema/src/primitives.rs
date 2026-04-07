@@ -7,6 +7,11 @@ use specta::{
 
 /// Convert a NamedDataType to a JSON Schema definition
 pub fn export(js: &JsonSchema, types: &Types, ndt: &NamedDataType) -> Result<Value, Error> {
+    // Set the current module context for relative $ref resolution in Layout::Files
+    CURRENT_MODULE.with(|cm| {
+        *cm.borrow_mut() = ndt.module_path().to_string().replace("::", "/");
+    });
+
     let mut schema = datatype_to_schema(js, types, ndt.ty(), true)?;
 
     if let Some(obj) = schema.as_object_mut() {
@@ -97,7 +102,17 @@ pub fn datatype_to_schema(
                         datatype_to_schema(js, types, referenced_ndt.ty(), is_definition)
                     }
                 } else {
-                    let ref_uri = js.build_ref(&referenced_ndt.name());
+                    let ref_uri = if matches!(js.layout, crate::Layout::Files)
+                        && js.base_uri.is_none()
+                    {
+                        let ref_module =
+                            referenced_ndt.module_path().to_string().replace("::", "/");
+                        CURRENT_MODULE.with(|cm| {
+                            compute_relative_ref(&cm.borrow(), &ref_module, &referenced_ndt.name())
+                        })
+                    } else {
+                        js.build_ref(&referenced_ndt.name())
+                    };
                     Ok(json!({ "$ref": ref_uri }))
                 }
             }
@@ -125,6 +140,11 @@ pub fn datatype_to_schema(
 thread_local! {
     static GENERICS_SCOPE: std::cell::RefCell<Vec<(GenericReference, DataType)>> =
         std::cell::RefCell::new(Vec::new());
+}
+
+// Thread-local current module path for computing relative $ref URIs in Layout::Files.
+thread_local! {
+    static CURRENT_MODULE: std::cell::RefCell<String> = std::cell::RefCell::new(String::new());
 }
 
 /// Resolve generic type parameters in a DataType.
@@ -230,6 +250,45 @@ fn resolve_generics(dt: &DataType, generics: &[(GenericReference, DataType)]) ->
     resolve(dt, generics, &mut Vec::new())
 }
 
+/// Compute a relative `$ref` path from the current module to a referenced type's module.
+fn compute_relative_ref(current_module: &str, ref_module: &str, type_name: &str) -> String {
+    if current_module == ref_module {
+        return format!("./{}.schema.json", type_name);
+    }
+
+    let current_parts: Vec<&str> = if current_module.is_empty() {
+        vec![]
+    } else {
+        current_module.split('/').collect()
+    };
+    let ref_parts: Vec<&str> = if ref_module.is_empty() {
+        vec![]
+    } else {
+        ref_module.split('/').collect()
+    };
+
+    // Find common prefix length
+    let common = current_parts
+        .iter()
+        .zip(ref_parts.iter())
+        .take_while(|(a, b)| a == b)
+        .count();
+
+    let mut path = String::new();
+    // Navigate up from current module to common ancestor
+    let ups = current_parts.len() - common;
+    for _ in 0..ups {
+        path.push_str("../");
+    }
+    // Navigate down to referenced module
+    for part in &ref_parts[common..] {
+        path.push_str(part);
+        path.push('/');
+    }
+
+    format!("{}{}.schema.json", path, type_name)
+}
+
 fn primitive_to_schema(p: &Primitive) -> Value {
     match p {
         Primitive::bool => json!({"type": "boolean"}),
@@ -326,13 +385,17 @@ fn struct_to_schema(js: &JsonSchema, types: &Types, s: &Struct) -> Result<Value,
                 .collect();
 
             let items = items?;
-            Ok(json!({
-                "type": "array",
-                "prefixItems": items,
-                "items": false,
-                "minItems": items.len(),
-                "maxItems": items.len()
-            }))
+            if items.len() == 1 {
+                Ok(items.into_iter().next().unwrap())
+            } else {
+                Ok(json!({
+                    "type": "array",
+                    "prefixItems": items,
+                    "items": false,
+                    "minItems": items.len(),
+                    "maxItems": items.len()
+                }))
+            }
         }
         Fields::Named(fields) => named_fields_to_schema(js, types, fields),
     }
@@ -356,9 +419,6 @@ fn enum_to_schema(js: &JsonSchema, types: &Types, e: &Enum) -> Result<Value, Err
         .iter()
         .all(|(_, v)| matches!(v.fields(), Fields::Unit))
     {
-        if filtered.len() == 1 {
-            return Ok(json!({"const": filtered[0].0.as_ref()}));
-        }
         let names: Vec<Value> = filtered
             .iter()
             .map(|(name, _)| Value::String(name.to_string()))

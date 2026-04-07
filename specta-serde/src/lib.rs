@@ -1044,6 +1044,8 @@ fn rewrite_enum_repr_for_phase(
     }
 
     *e.variants_mut() = transformed;
+    e.attributes_mut()
+        .insert("specta:serde_repr", true);
 
     Ok(())
 }
@@ -1442,27 +1444,26 @@ fn deserialize_conversion_name(attrs: Option<&SerdeContainerAttrs>) -> Option<St
 }
 
 fn transform_external_variant(serialized_name: String, variant: &Variant) -> Result<Variant> {
-    let skipped_only_unnamed = match variant.fields() {
+    let effectively_unit = match variant.fields() {
+        Fields::Unit => true,
         Fields::Unnamed(unnamed) => unnamed_fields_all_skipped(unnamed),
-        Fields::Unit | Fields::Named(_) => false,
+        Fields::Named(_) => false,
     };
 
-    Ok(match variant.fields() {
-        Fields::Unit => clone_variant_with_unnamed_fields(
-            variant,
-            vec![Field::new(string_literal_datatype(serialized_name))],
-        ),
-        _ if skipped_only_unnamed => clone_variant_with_unnamed_fields(
-            variant,
-            vec![Field::new(string_literal_datatype(serialized_name))],
-        ),
-        _ => {
-            let payload = variant_payload_field(variant)
-                .ok_or_else(|| Error::invalid_external_tagged_variant(serialized_name.clone()))?;
+    if effectively_unit {
+        // Unit variants in externally-tagged enums serialize as just the variant
+        // name string. Keep them as unit — the serialized name is already carried
+        // by the variant key in the variants list.
+        return Ok(clone_variant_as_unit(variant));
+    }
 
-            clone_variant_with_named_fields(variant, vec![(Cow::Owned(serialized_name), payload)])
-        }
-    })
+    let payload = variant_payload_field(variant)
+        .ok_or_else(|| Error::invalid_external_tagged_variant(serialized_name.clone()))?;
+
+    Ok(clone_variant_with_named_fields(
+        variant,
+        vec![(Cow::Owned(serialized_name), payload)],
+    ))
 }
 
 fn transform_adjacent_variant(
@@ -1599,6 +1600,16 @@ fn variant_payload_field(variant: &Variant) -> Option<Field> {
             }
         }
     }
+}
+
+fn clone_variant_as_unit(original: &Variant) -> Variant {
+    let mut transformed = Variant::unit();
+    transformed.set_skip(original.skip());
+    transformed.set_docs(original.docs().clone());
+    transformed.set_deprecated(original.deprecated().cloned());
+    transformed.set_type_overridden(original.type_overridden());
+    *transformed.attributes_mut() = original.attributes().clone();
+    transformed
 }
 
 fn clone_variant_with_named_fields(
@@ -2014,9 +2025,9 @@ fn field_is_optional_for_mode(
 #[cfg(test)]
 mod tests {
     use serde::{Deserialize, Serialize};
-    use specta::{ResolvedTypes, Type, datatype::DataType};
+    use specta::{ResolvedTypes, Type, Types, datatype::DataType};
 
-    use super::{Phase, Phased, apply_phases, select_phase_datatype};
+    use super::{Phase, Phased, apply, apply_phases, select_phase_datatype};
 
     #[derive(Type, Serialize, Deserialize)]
     #[serde(untagged)]
@@ -2105,6 +2116,190 @@ mod tests {
 
         assert_named_reference(&serialize, &resolved, "String");
         assert_named_reference(first_generic_type(&deserialize), &resolved, "String");
+    }
+
+    // --- Unit enum variant preservation tests ---
+
+    #[derive(Type, Serialize, Deserialize)]
+    enum UnitOnlyEnum {
+        Read,
+        Write,
+        Admin,
+    }
+
+    #[derive(Type, Serialize, Deserialize)]
+    #[serde(rename_all = "snake_case")]
+    enum RenamedUnitEnum {
+        ReadAccess,
+        WriteAccess,
+    }
+
+    #[derive(Type, Serialize, Deserialize)]
+    enum MixedEnum {
+        UnitVariant,
+        Tuple(String),
+        Struct { x: i32 },
+    }
+
+    #[derive(Type, Serialize, Deserialize)]
+    #[serde(tag = "type")]
+    enum InternallyTaggedUnitEnum {
+        Read,
+        Write,
+    }
+
+    #[derive(Type, Serialize, Deserialize)]
+    #[serde(tag = "t", content = "c")]
+    enum AdjacentlyTaggedUnitEnum {
+        Read,
+        Write,
+    }
+
+    #[derive(Type, Serialize, Deserialize)]
+    #[serde(untagged)]
+    enum UntaggedEnum {
+        Str(String),
+        Num(i32),
+    }
+
+    fn resolve_enum_variants(
+        resolved: &ResolvedTypes,
+        name: &str,
+    ) -> Vec<(String, specta::datatype::Fields)> {
+        let ndt = resolved
+            .as_types()
+            .into_unsorted_iter()
+            .find(|ndt| ndt.name() == name)
+            .unwrap_or_else(|| panic!("type '{}' not found in resolved types", name));
+
+        let DataType::Enum(e) = ndt.ty() else {
+            panic!("expected enum type for '{}'", name);
+        };
+
+        e.variants()
+            .iter()
+            .map(|(name, variant)| (name.to_string(), variant.fields().clone()))
+            .collect()
+    }
+
+    #[test]
+    fn external_unit_variants_remain_unit() {
+        let types = Types::default().register::<UnitOnlyEnum>();
+        let resolved = apply(types).expect("apply should succeed");
+        let variants = resolve_enum_variants(&resolved, "UnitOnlyEnum");
+
+        assert_eq!(variants.len(), 3);
+        for (name, fields) in &variants {
+            assert!(
+                matches!(fields, specta::datatype::Fields::Unit),
+                "variant '{}' should have Unit fields, got {:?}",
+                name,
+                fields
+            );
+        }
+        assert_eq!(variants[0].0, "Read");
+        assert_eq!(variants[1].0, "Write");
+        assert_eq!(variants[2].0, "Admin");
+    }
+
+    #[test]
+    fn external_renamed_unit_variants_remain_unit() {
+        let types = Types::default().register::<RenamedUnitEnum>();
+        let resolved = apply(types).expect("apply should succeed");
+        let variants = resolve_enum_variants(&resolved, "RenamedUnitEnum");
+
+        assert_eq!(variants.len(), 2);
+        // Variant names should be renamed per serde rename_all
+        assert_eq!(variants[0].0, "read_access");
+        assert_eq!(variants[1].0, "write_access");
+        for (name, fields) in &variants {
+            assert!(
+                matches!(fields, specta::datatype::Fields::Unit),
+                "variant '{}' should have Unit fields, got {:?}",
+                name,
+                fields
+            );
+        }
+    }
+
+    #[test]
+    fn external_mixed_enum_unit_variant_remains_unit() {
+        let types = Types::default().register::<MixedEnum>();
+        let resolved = apply(types).expect("apply should succeed");
+        let variants = resolve_enum_variants(&resolved, "MixedEnum");
+
+        assert_eq!(variants.len(), 3);
+        // Unit variant should stay unit
+        assert!(
+            matches!(variants[0].1, specta::datatype::Fields::Unit),
+            "UnitVariant should have Unit fields, got {:?}",
+            variants[0].1
+        );
+        // Tuple and Struct variants should be transformed to named fields (external tagging)
+        assert!(
+            matches!(variants[1].1, specta::datatype::Fields::Named(_)),
+            "Tuple variant should have Named fields, got {:?}",
+            variants[1].1
+        );
+        assert!(
+            matches!(variants[2].1, specta::datatype::Fields::Named(_)),
+            "Struct variant should have Named fields, got {:?}",
+            variants[2].1
+        );
+    }
+
+    #[test]
+    fn internally_tagged_unit_variants_get_tag_field() {
+        let types = Types::default().register::<InternallyTaggedUnitEnum>();
+        let resolved = apply(types).expect("apply should succeed");
+        let variants = resolve_enum_variants(&resolved, "InternallyTaggedUnitEnum");
+
+        assert_eq!(variants.len(), 2);
+        // Internally tagged unit variants get a tag field, so they become named
+        for (name, fields) in &variants {
+            assert!(
+                matches!(fields, specta::datatype::Fields::Named(_)),
+                "internally tagged variant '{}' should have Named fields, got {:?}",
+                name,
+                fields
+            );
+        }
+    }
+
+    #[test]
+    fn adjacently_tagged_unit_variants_get_tag_field() {
+        let types = Types::default().register::<AdjacentlyTaggedUnitEnum>();
+        let resolved = apply(types).expect("apply should succeed");
+        let variants = resolve_enum_variants(&resolved, "AdjacentlyTaggedUnitEnum");
+
+        assert_eq!(variants.len(), 2);
+        // Adjacently tagged unit variants get a tag field, so they become named
+        for (name, fields) in &variants {
+            assert!(
+                matches!(fields, specta::datatype::Fields::Named(_)),
+                "adjacently tagged variant '{}' should have Named fields, got {:?}",
+                name,
+                fields
+            );
+        }
+    }
+
+    #[test]
+    fn untagged_enum_variants_unchanged() {
+        let types = Types::default().register::<UntaggedEnum>();
+        let resolved = apply(types).expect("apply should succeed");
+        let variants = resolve_enum_variants(&resolved, "UntaggedEnum");
+
+        // Untagged enums should still have their payload
+        assert_eq!(variants.len(), 2);
+        for (name, fields) in &variants {
+            assert!(
+                matches!(fields, specta::datatype::Fields::Unnamed(_)),
+                "untagged variant '{}' should have Unnamed fields, got {:?}",
+                name,
+                fields
+            );
+        }
     }
 
     fn assert_named_reference(dt: &DataType, types: &ResolvedTypes, expected_name: &str) {

@@ -1,0 +1,20 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "UserListResponse",
+  "type": "object",
+  "properties": {
+    "users": {
+      "type": "array",
+      "items": {
+        "$ref": "../ex_shared/User.schema.json"
+      }
+    },
+    "pagination": {
+      "$ref": "../ex_shared/Pagination.schema.json"
+    }
+  },
+  "required": [
+    "users",
+    "pagination"
+  ]
+}

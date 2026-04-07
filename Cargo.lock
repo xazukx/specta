@@ -767,9 +767,11 @@ dependencies = [
  "ex-shared",
  "serde",
  "specta",
+ "specta-jsonschema",
  "specta-macros",
  "specta-serde",
  "specta-typescript",
+ "specta-zod",
 ]
 
 [[package]]

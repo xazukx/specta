@@ -9,6 +9,8 @@ ex-shared = { path = "../ex-shared" }
 specta = { workspace = true, features = ["derive", "collect"] }
 specta-macros = { workspace = true, features = ["serde"] }
 specta-typescript.workspace = true
+specta-jsonschema.workspace = true
+specta-zod.workspace = true
 specta-serde.workspace = true
 serde = { workspace = true, features = ["derive"] }
 

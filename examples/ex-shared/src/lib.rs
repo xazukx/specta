@@ -28,10 +28,10 @@ pub struct Pagination {
 
 #[derive(Type, Serialize, Deserialize)]
 #[specta(ts_enum)]
+#[serde(rename_all = "snake_case")]
 pub enum Permission {
-    Read,
-    Write,
-    Admin,
+    ReadAll,
+    WriteAll,
 }
 
 #[specta_const]
