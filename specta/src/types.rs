@@ -169,6 +169,17 @@ impl ResolvedTypes {
         }
     }
 
+    /// Wrap already-resolved [`Types`] as [`ResolvedTypes`].
+    ///
+    /// This should generally be called by format crates after they finish their
+    /// own transformation pass (for example `specta_serde::apply` or
+    /// `specta_serde::apply_phases`).
+    ///
+    /// If you call this in end-user code your types may not look how you expect!
+    pub fn from_types_and_constants(types: Types, constants: Constants) -> Self {
+        Self { types, constants }
+    }
+
     /// Attach constants to this resolved type set.
     pub fn with_constants(mut self, constants: Constants) -> Self {
         self.constants = constants;

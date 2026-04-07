@@ -34,6 +34,11 @@ pub use types::{ResolvedTypes, Types};
 pub use collect::collect;
 
 #[doc(inline)]
+#[cfg(feature = "collect")]
+#[cfg_attr(docsrs, doc(cfg(feature = "collect")))]
+pub use collect::collect_constants;
+
+#[doc(inline)]
 #[cfg(feature = "derive")]
 #[cfg_attr(docsrs, doc(cfg(feature = "derive")))]
 pub use specta_macros::Type;

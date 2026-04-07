@@ -761,6 +761,27 @@ dependencies = [
 ]
 
 [[package]]
+name = "ex-app"
+version = "0.0.0"
+dependencies = [
+ "ex-shared",
+ "serde",
+ "specta",
+ "specta-macros",
+ "specta-serde",
+ "specta-typescript",
+]
+
+[[package]]
+name = "ex-shared"
+version = "0.0.0"
+dependencies = [
+ "serde",
+ "specta",
+ "specta-macros",
+]
+
+[[package]]
 name = "example-basic-ts"
 version = "0.0.0"
 dependencies = [
@@ -768,6 +789,17 @@ dependencies = [
  "serde_repr",
  "serde_with",
  "specta",
+ "specta-serde",
+ "specta-typescript",
+]
+
+[[package]]
+name = "example-collect-ts"
+version = "0.0.0"
+dependencies = [
+ "serde",
+ "specta",
+ "specta-macros",
  "specta-serde",
  "specta-typescript",
 ]

@@ -83,6 +83,14 @@ pub fn attribute(
         ConstantOutput::Infer
     };
 
+    // Extract collect override
+    let should_collect = if let Some(pos) = attrs.iter().position(|a| a.key == "collect") {
+        let attr = attrs.swap_remove(pos);
+        attr.parse_bool()?
+    } else {
+        true
+    };
+
     // Extract crate override
     let crate_ref = if let Some(pos) = attrs.iter().position(|a| a.key == "crate") {
         use quote::ToTokens;
@@ -135,6 +143,17 @@ pub fn attribute(
         quote!(None)
     };
 
+    let collect = (cfg!(feature = "DO_NOT_USE_collect") && should_collect).then(|| {
+        let export_fn_name = format_ident!("__push_specta_const_{}", const_ident);
+        quote! {
+            #[allow(unsafe_code, non_snake_case)]
+            #[#crate_ref::collect::internal::ctor::ctor(anonymous, crate_path = #crate_ref::collect::internal::ctor)]
+            unsafe fn #export_fn_name() {
+                #crate_ref::collect::internal::register_constant::<#hidden_struct>();
+            }
+        }
+    });
+
     Ok(quote! {
         #item_const
 
@@ -168,6 +187,8 @@ pub fn attribute(
                     Cow::Borrowed(module_path!())
                 }
             }
+
+            #collect
         };
     }
     .into())

@@ -1,5 +1,6 @@
 ---
 source: tests/tests/typescript.rs
+assertion_line: 699
 expression: output
 ---
 i8: number
@@ -322,11 +323,17 @@ CommentedEnum:
 	a: number,
 } }) & { A?: never }
 SingleLineComment: 
-// Some single-line comment
+/**
+ *  Some single-line comment
+ */
 ({ A: number }) & { B?: never } | 
-// Some single-line comment
+/**
+ *  Some single-line comment
+ */
 ({ B: {
-	// Some single-line comment
+	/**
+	 *  Some single-line comment
+	 */
 	a: number,
 } }) & { A?: never }
 NonGeneric: {

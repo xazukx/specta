@@ -1,5 +1,6 @@
 ---
 source: tests/tests/typescript.rs
+assertion_line: 617
 expression: output
 ---
 Range<i32>: export type Range<T> = {
@@ -408,13 +409,21 @@ number |
  */
 a: number };
 
-SingleLineComment: // Some single-line comment
+SingleLineComment: /**
+ *  Some single-line comment
+ */
 export type SingleLineComment = 
-// Some single-line comment
+/**
+ *  Some single-line comment
+ */
 number | 
-// Some single-line comment
+/**
+ *  Some single-line comment
+ */
 { 
-// Some single-line comment
+/**
+ *  Some single-line comment
+ */
 a: number };
 
 NonGeneric: export type Demo<A, B> = {

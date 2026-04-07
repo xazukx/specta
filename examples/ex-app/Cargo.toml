@@ -1,0 +1,14 @@
+[package]
+name = "ex-app"
+version = "0.0.0"
+edition = "2024"
+publish = false
+
+[dependencies]
+ex-shared = { path = "../ex-shared" }
+specta = { workspace = true, features = ["derive", "collect"] }
+specta-macros = { workspace = true, features = ["serde"] }
+specta-typescript.workspace = true
+specta-serde.workspace = true
+serde = { workspace = true, features = ["derive"] }
+

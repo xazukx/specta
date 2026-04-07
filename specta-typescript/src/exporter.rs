@@ -1,6 +1,6 @@
 use std::{
     borrow::Cow,
-    collections::{BTreeMap, BTreeSet, HashMap, HashSet},
+    collections::{BTreeMap, HashMap, HashSet},
     fmt,
     ops::Deref,
     panic::Location,
@@ -9,7 +9,7 @@ use std::{
 };
 
 use specta::{
-    ResolvedTypes, Types,
+    Constants, ResolvedTypes, Types,
     datatype::{DataType, NamedDataType, Reference},
 };
 
@@ -282,11 +282,20 @@ impl Exporter {
             let import_paths = referenced_types
                 .into_iter()
                 .filter_map(|r| {
-                    r.get(types)
-                        .map(|ndt| ndt.module_path().as_ref().to_string())
+                    r.get(types).map(|ndt| {
+                        let is_value = matches!(
+                            ndt.ty(),
+                            DataType::Enum(e) if crate::legacy::is_native_ts_enum(e)
+                        );
+                        (ndt.module_path().as_ref().to_string(), is_value)
+                    })
                 })
-                .filter(|module_path| module_path != module.module_path.as_ref())
-                .collect::<BTreeSet<_>>();
+                .filter(|(module_path, _)| module_path != module.module_path.as_ref())
+                .fold(BTreeMap::new(), |mut acc, (path, is_value)| {
+                    let entry = acc.entry(path).or_insert(false);
+                    *entry = *entry || is_value;
+                    acc
+                });
             if !import_paths.is_empty() {
                 s.push('\n');
                 s.push_str(&module_import_block(
@@ -302,10 +311,26 @@ impl Exporter {
 
             s.push_str(&rendered_types);
 
+            // Constants belonging to this module
+            if !module.constants.is_empty() {
+                module.constants.sort_by(|a, b| a.name.cmp(&b.name));
+                if !rendered_types.is_empty() {
+                    s.push('\n');
+                }
+                for constant in &module.constants {
+                    const_export::export_constant_internal(s, exporter, constant)?;
+                }
+            }
+
+            let has_content = !exports.is_empty() || !module.constants.is_empty();
+
             for (name, module) in &mut module.children {
                 // This doesn't account for `NamedDataType::requires_reference`
                 // but we keep it for performance.
-                if module.types.is_empty() && module.children.is_empty() {
+                if module.types.is_empty()
+                    && module.constants.is_empty()
+                    && module.children.is_empty()
+                {
                     continue;
                 }
 
@@ -319,7 +344,7 @@ impl Exporter {
                 }
             }
 
-            Ok(!exports.is_empty())
+            Ok(has_content)
         }
 
         let mut files = HashMap::new();
@@ -327,10 +352,13 @@ impl Exporter {
         runtime_path.set_extension(if self.jsdoc { "js" } else { "ts" });
 
         let mut root_types = String::new();
+        let mut module_graph = build_module_graph(types, resolved_types.constants());
+        // Extract root constants before passing to export(); they go into index.ts
+        let root_constants: Vec<_> = std::mem::take(&mut module_graph.constants);
         export(
             self,
             types,
-            &mut build_module_graph(types),
+            &mut module_graph,
             &mut root_types,
             path,
             &mut files,
@@ -357,7 +385,7 @@ impl Exporter {
 
             let should_export_user_types =
                 !has_manually_exported_user_types && !root_types.is_empty();
-            let has_constants = !resolved_types.constants().is_empty();
+            let has_constants = !root_constants.is_empty();
 
             if !runtime.is_empty() || should_export_user_types || has_constants {
                 files.insert(runtime_path, {
@@ -378,21 +406,35 @@ impl Exporter {
                         body.push_str(&root_types);
                     }
 
-                    let import_paths = runtime_references
+                    let import_paths: BTreeMap<String, bool> = runtime_references
                         .into_iter()
                         .filter_map(|r| {
-                            r.get(types)
-                                .map(|ndt| ndt.module_path().as_ref().to_string())
+                            r.get(types).map(|ndt| {
+                                let is_value = matches!(
+                                    ndt.ty(),
+                                    DataType::Enum(e) if crate::legacy::is_native_ts_enum(e)
+                                );
+                                (ndt.module_path().as_ref().to_string(), is_value)
+                            })
                         })
-                        .filter(|module_path| !module_path.is_empty())
-                        .collect::<BTreeSet<_>>();
+                        .filter(|(module_path, _)| !module_path.is_empty())
+                        .fold(BTreeMap::new(), |mut acc, (path, is_value)| {
+                            let entry = acc.entry(path).or_insert(false);
+                            *entry = *entry || is_value;
+                            acc
+                        });
 
-                    let import_paths = import_paths
+                    let import_paths: BTreeMap<String, bool> = import_paths
                         .into_iter()
-                        .filter(|module_path| {
-                            !body.contains(&module_import_statement(self, "", module_path))
+                        .filter(|(module_path, has_values)| {
+                            !body.contains(&module_import_statement(
+                                self,
+                                "",
+                                module_path,
+                                *has_values,
+                            ))
                         })
-                        .collect::<BTreeSet<_>>();
+                        .collect();
 
                     if !import_paths.is_empty() {
                         out.push('\n');
@@ -407,14 +449,16 @@ impl Exporter {
                         out.push_str(&body);
                     }
 
-                    // Constants
+                    // Root-level constants (no module path)
                     if has_constants {
                         out.push('\n');
-                        const_export::export_constants_internal(
-                            &mut out,
-                            self,
-                            resolved_types.constants(),
-                        )?;
+                        for constant in &root_constants {
+                            const_export::export_constant_internal(
+                                &mut out,
+                                self,
+                                constant,
+                            )?;
+                        }
                     }
 
                     out
@@ -568,44 +612,72 @@ impl FrameworkExporter<'_> {
 
 struct Module<'a> {
     types: Vec<&'a NamedDataType>,
+    constants: Vec<&'a specta::NamedConstant>,
     children: BTreeMap<&'a str, Module<'a>>,
     module_path: Cow<'static, str>,
 }
 
-fn build_module_graph(types: &Types) -> Module<'_> {
-    types.into_unsorted_iter().fold(
-        Module {
-            types: Default::default(),
-            children: Default::default(),
-            module_path: Default::default(),
-        },
-        |mut ns, ndt| {
-            let path = ndt.module_path();
+fn build_module_graph<'a>(types: &'a Types, constants: &'a Constants) -> Module<'a> {
+    let mut root = Module {
+        types: Default::default(),
+        constants: Default::default(),
+        children: Default::default(),
+        module_path: Default::default(),
+    };
 
-            if path.is_empty() {
-                ns.types.push(ndt);
-            } else {
-                let mut current = &mut ns;
-                let mut current_path = String::new();
-                for segment in path.split("::") {
-                    if !current_path.is_empty() {
-                        current_path.push_str("::");
-                    }
-                    current_path.push_str(segment);
+    for ndt in types.into_unsorted_iter() {
+        let path = ndt.module_path();
 
-                    current = current.children.entry(segment).or_insert_with(|| Module {
-                        types: Default::default(),
-                        children: Default::default(),
-                        module_path: current_path.clone().into(),
-                    });
+        if path.is_empty() {
+            root.types.push(ndt);
+        } else {
+            let mut current = &mut root;
+            let mut current_path = String::new();
+            for segment in path.split("::") {
+                if !current_path.is_empty() {
+                    current_path.push_str("::");
                 }
+                current_path.push_str(segment);
 
-                current.types.push(ndt);
+                current = current.children.entry(segment).or_insert_with(|| Module {
+                    types: Default::default(),
+                    constants: Default::default(),
+                    children: Default::default(),
+                    module_path: current_path.clone().into(),
+                });
             }
 
-            ns
-        },
-    )
+            current.types.push(ndt);
+        }
+    }
+
+    for constant in constants.iter() {
+        let path = &constant.module_path;
+
+        if path.is_empty() {
+            root.constants.push(constant);
+        } else {
+            let mut current = &mut root;
+            let mut current_path = String::new();
+            for segment in path.split("::") {
+                if !current_path.is_empty() {
+                    current_path.push_str("::");
+                }
+                current_path.push_str(segment);
+
+                current = current.children.entry(segment).or_insert_with(|| Module {
+                    types: Default::default(),
+                    constants: Default::default(),
+                    children: Default::default(),
+                    module_path: current_path.clone().into(),
+                });
+            }
+
+            current.constants.push(constant);
+        }
+    }
+
+    root
 }
 
 fn render_file_header(exporter: &Exporter) -> Result<String, Error> {
@@ -687,7 +759,8 @@ fn render_types(
                 Ok(())
             }
 
-            let mut module = build_module_graph(types);
+            let empty_constants = Constants::default();
+            let mut module = build_module_graph(types, &empty_constants);
 
             let reexports = {
                 let mut reexports = String::new();
@@ -883,8 +956,9 @@ fn module_import_statement(
     exporter: &Exporter,
     from_module_path: &str,
     to_module_path: &str,
+    has_values: bool,
 ) -> String {
-    let import_keyword = if exporter.jsdoc {
+    let import_keyword = if exporter.jsdoc || has_values {
         "import"
     } else {
         "import type"
@@ -901,12 +975,12 @@ fn module_import_statement(
 fn module_import_block(
     exporter: &Exporter,
     from_module_path: &str,
-    import_paths: &BTreeSet<String>,
+    import_paths: &BTreeMap<String, bool>,
 ) -> String {
     if exporter.jsdoc {
         let mut out = String::from("/**\n");
 
-        for module_path in import_paths {
+        for module_path in import_paths.keys() {
             out.push_str(" * @typedef {import(\"");
             out.push_str(&module_import_path(from_module_path, module_path));
             out.push_str("\")} ");
@@ -919,7 +993,9 @@ fn module_import_block(
     } else {
         import_paths
             .iter()
-            .map(|module_path| module_import_statement(exporter, from_module_path, module_path))
+            .map(|(module_path, has_values)| {
+                module_import_statement(exporter, from_module_path, module_path, *has_values)
+            })
             .collect::<Vec<_>>()
             .join("\n")
     }
