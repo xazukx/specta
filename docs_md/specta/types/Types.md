@@ -20,7 +20,7 @@ pub struct Types (
 */
 pub fn register<T>(self: Self) -> Self
 /**
-`register_mut` -- Register a [`Type`](crate::Type) with the collection.
+`register_mut` -- Register a [`Type`] with the collection.
 */
 pub fn register_mut<T>(self: &mut Self) -> &mut Self
 /**

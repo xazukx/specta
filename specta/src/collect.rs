@@ -18,7 +18,7 @@ static CONSTANTS: OnceLock<Mutex<Vec<fn(&mut Constants)>>> = OnceLock::new();
 ///
 /// Note that when enabling the `collect` feature, you will not be able to enable the `unsafe_code` lint as [`ctor`] (which is used internally) is marked unsafe.
 ///
-pub fn collect() -> Types {
+pub fn collect_types() -> Types {
     let types = TYPES
         .get_or_init(Default::default)
         .lock()

@@ -453,11 +453,7 @@ impl Exporter {
                     if has_constants {
                         out.push('\n');
                         for constant in &root_constants {
-                            const_export::export_constant_internal(
-                                &mut out,
-                                self,
-                                constant,
-                            )?;
+                            const_export::export_constant_internal(&mut out, self, constant)?;
                         }
                     }
 

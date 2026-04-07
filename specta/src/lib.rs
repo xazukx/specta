@@ -31,7 +31,7 @@ pub use types::{ResolvedTypes, Types};
 #[doc(inline)]
 #[cfg(feature = "collect")]
 #[cfg_attr(docsrs, doc(cfg(feature = "collect")))]
-pub use collect::collect;
+pub use collect::collect_types;
 
 #[doc(inline)]
 #[cfg(feature = "collect")]

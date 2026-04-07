@@ -3,6 +3,7 @@
 ## Submodules
 
 - [attributes](attributes/index.md)
+- [constant](constant/index.md)
 - [enum](enum/index.md)
 - [fields](fields/index.md)
 - [function](function/index.md)

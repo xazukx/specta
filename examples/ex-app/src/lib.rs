@@ -1,3 +1,4 @@
+use ex_shared::{Pagination, Permission, Role, User};
 use serde::{Deserialize, Serialize};
 use specta::{Type, specta_const};
 
@@ -9,16 +10,16 @@ pub struct AppConfig {
 
 #[derive(Type, Serialize, Deserialize)]
 pub struct UserListResponse {
-    pub users: Vec<ex_shared::User>,
-    pub pagination: ex_shared::Pagination,
+    pub users: Vec<User>,
+    pub pagination: Pagination,
 }
 
 #[derive(Type, Serialize, Deserialize)]
 pub struct CreateUserRequest {
     pub name: String,
     pub email: String,
-    pub role: ex_shared::Role,
-    pub permission: ex_shared::Permission,
+    pub role: Role,
+    pub permission: Permission,
 }
 
 #[specta_const]
@@ -30,7 +31,7 @@ mod tests {
 
     #[test]
     fn export_to_typescript_files() {
-        let types = specta::collect();
+        let types = specta::collect_types();
         let constants = specta::collect_constants();
 
         let resolved = specta_serde::apply(types)

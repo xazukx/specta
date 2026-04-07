@@ -79,8 +79,8 @@ pub const DEBUG_MODE: bool = false;
 pub const INTERNAL_SECRET_SEED: u32 = 42;
 
 fn main() {
-    // collect() returns all types that have #[derive(Type)] (except collect = false)
-    let types = specta::collect();
+    // collect_types() returns all types that have #[derive(Type)] (except collect = false)
+    let types = specta::collect_types();
     // collect_constants() returns all #[specta_const] constants (except collect = false)
     let constants = specta::collect_constants();
 
@@ -100,8 +100,8 @@ fn main() {
 
     println!("{output_from_serde}");
 
-    // collect() returns all types that have #[derive(Type)] (except collect = false)
-    let types = specta::collect();
+    // collect_types() returns all types that have #[derive(Type)] (except collect = false)
+    let types = specta::collect_types();
     // collect_constants() returns all #[specta_const] constants (except collect = false)
     let constants = specta::collect_constants();
 

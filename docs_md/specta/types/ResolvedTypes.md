@@ -12,9 +12,10 @@ conversion may change type shapes. Prefer using your format crate's
 conversion entry points when possible.
 
 ```rust
-pub struct ResolvedTypes (
-	Types,
-)
+pub struct ResolvedTypes {
+	types: Types,
+	constants: crate::Constants,
+}
 ```
 
 ## Methods
@@ -30,6 +31,20 @@ own transformation pass (for example `specta_serde::apply` or
 If you call this in end-user code your types may not look how you expect!
 */
 pub fn from_resolved_types(types: Types) -> Self
+/**
+`from_types_and_constants` -- Wrap already-resolved [`Types`] as [`ResolvedTypes`].
+
+This should generally be called by format crates after they finish their
+own transformation pass (for example `specta_serde::apply` or
+`specta_serde::apply_phases`).
+
+If you call this in end-user code your types may not look how you expect!
+*/
+pub fn from_types_and_constants(types: Types, constants: Constants) -> Self
+/**
+`with_constants` -- Attach constants to this resolved type set.
+*/
+pub fn with_constants(self: Self, constants: Constants) -> Self
 /**
 `as_types` -- Borrow the underlying [`Types`] collection.
 
@@ -49,6 +64,10 @@ This does not undo format-specific resolution. The returned [`Types`]
 remain whatever shape they were resolved into.
 */
 pub fn into_types(self: Self) -> Types
+/**
+`constants` -- Borrow the constants collection.
+*/
+pub fn constants(self: &Self) -> &Constants
 /**
 `into_sorted_iter` -- Sort the collection into a consistent order and return an iterator.
 

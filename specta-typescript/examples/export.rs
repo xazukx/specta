@@ -31,7 +31,7 @@ mod another {
 }
 
 fn main() {
-    let resolved_types = ResolvedTypes::from_resolved_types(specta::collect());
+    let resolved_types = ResolvedTypes::from_resolved_types(specta::collect_types());
 
     Typescript::default()
         .layout(specta_typescript::Layout::Files)
