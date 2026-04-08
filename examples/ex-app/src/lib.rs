@@ -120,6 +120,11 @@ mod tests {
             .layout(specta_jsonschema::Layout::Files)
             .export_to(&out_dir, &resolved)
             .expect("jsonschema export failed");
+        // single file output
+        specta_jsonschema::JsonSchema::default()
+            .layout(specta_jsonschema::Layout::SingleFile)
+            .export_to(out_dir.join("singlefile.json"), &resolved)
+            .expect("jsonschema export failed");
 
         // Layout::Files creates one .schema.json per type, organized by module
         let user_path = out_dir.join("ex_shared/User.schema.json");
@@ -164,6 +169,7 @@ mod tests {
         let out_dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("output/zod");
 
         specta_zod::Zod::default()
+            .output_type_infers(false)
             .layout(specta_zod::Layout::Files)
             .export_to(&out_dir, &serde_resolved)
             .expect("zod export failed");

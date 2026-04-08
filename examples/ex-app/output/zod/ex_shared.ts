@@ -5,16 +5,12 @@ export const PaginationSchema = z.object({
 	per_page: z.int(),
 	total: z.int(),
 });
-export type Pagination = z.infer<typeof PaginationSchema>;
 
 export const PermissionSchema = z.enum(["read_all", "write_all"]);
-export type Permission = z.infer<typeof PermissionSchema>;
 
 export const RoleSchema = z.enum(["Admin", "Guest", "Member"]);
-export type Role = z.infer<typeof RoleSchema>;
 
 export const UserIdSchema = z.int();
-export type UserId = z.infer<typeof UserIdSchema>;
 
 export const UserSchema = z.object({
 	id: UserIdSchema,
@@ -22,4 +18,3 @@ export const UserSchema = z.object({
 	email: z.string(),
 	role: RoleSchema,
 });
-export type User = z.infer<typeof UserSchema>;

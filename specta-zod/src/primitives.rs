@@ -146,10 +146,12 @@ fn export_single_internal(
         )?;
 
         writeln!(s, "{indent}export const {schema_name} = {schema_expr};")?;
-        writeln!(
-            s,
-            "{indent}export type {base_name} = z.infer<typeof {schema_name}>;"
-        )?;
+        if exporter.output_type_infers {
+            writeln!(
+                s,
+                "{indent}export type {base_name} = z.infer<typeof {schema_name}>;"
+            )?;
+        }
         return Ok(());
     }
 
@@ -183,17 +185,19 @@ fn export_single_internal(
         "{indent}export const {schema_name} = <{generic_params}>({fn_params}) => {schema_expr};"
     )?;
 
-    let alias_params = generic_names.join(", ");
-    let infer_args = generic_names
-        .iter()
-        .map(|name| format!("z.ZodType<{name}>"))
-        .collect::<Vec<_>>()
-        .join(", ");
+    if exporter.output_type_infers {
+        let alias_params = generic_names.join(", ");
+        let infer_args = generic_names
+            .iter()
+            .map(|name| format!("z.ZodType<{name}>"))
+            .collect::<Vec<_>>()
+            .join(", ");
 
-    writeln!(
-        s,
-        "{indent}export type {base_name}<{alias_params}> = z.infer<ReturnType<typeof {schema_name}<{infer_args}>>>;"
-    )?;
+        writeln!(
+            s,
+            "{indent}export type {base_name}<{alias_params}> = z.infer<ReturnType<typeof {schema_name}<{infer_args}>>>;"
+        )?;
+    }
 
     Ok(())
 }

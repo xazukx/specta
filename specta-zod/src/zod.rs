@@ -82,6 +82,8 @@ pub struct Zod {
     pub layout: Layout,
     /// Target Zod version for generated schemas.
     pub zod_version: ZodVersion,
+    /// Whether to export inferred TypeScript types (`export type X = z.infer<...>`).
+    pub output_type_infers: bool,
 }
 
 impl Default for Zod {
@@ -102,6 +104,7 @@ impl Zod {
             bigint: Default::default(),
             layout: Default::default(),
             zod_version: Default::default(),
+            output_type_infers: true,
         }
     }
 
@@ -144,6 +147,12 @@ impl Zod {
     /// Configure the target Zod version.
     pub fn zod_version(mut self, version: ZodVersion) -> Self {
         self.zod_version = version;
+        self
+    }
+
+    /// Configure whether to export inferred TypeScript types (`export type X = z.infer<...>`).
+    pub fn output_type_infers(mut self, export: bool) -> Self {
+        self.output_type_infers = export;
         self
     }
 

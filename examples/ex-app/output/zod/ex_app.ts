@@ -6,7 +6,6 @@ export const AppConfigSchema = z.object({
 	app_name: z.string(),
 	debug: z.boolean(),
 });
-export type AppConfig = z.infer<typeof AppConfigSchema>;
 
 export const CreateUserRequestSchema = z.object({
 	name: z.string(),
@@ -14,10 +13,8 @@ export const CreateUserRequestSchema = z.object({
 	role: ex_shared.RoleSchema,
 	permission: ex_shared.PermissionSchema,
 });
-export type CreateUserRequest = z.infer<typeof CreateUserRequestSchema>;
 
 export const UserListResponseSchema = z.object({
 	users: z.array(ex_shared.UserSchema),
 	pagination: ex_shared.PaginationSchema,
 });
-export type UserListResponse = z.infer<typeof UserListResponseSchema>;
