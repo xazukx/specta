@@ -8,6 +8,8 @@
     html_favicon_url = "https://github.com/specta-rs/specta/raw/main/.github/logo-128.png"
 )]
 
+#[cfg(feature = "companion")]
+mod companion;
 mod constant;
 #[cfg(feature = "DO_NOT_USE_function")]
 mod specta;
@@ -97,6 +99,32 @@ pub fn parse_type_from_lit(input: proc_macro::TokenStream) -> proc_macro::TokenS
             .to_compile_error()
             .into(),
     }
+}
+
+/// Generates companion enums for structs (field + value enums) and variant name
+/// arrays for enums, enabling dynamic field access and updates at runtime.
+///
+/// ## On Structs
+///
+/// Generates `{Struct}Field` and `{Struct}Value` enums, a `FIELD_NAMES` constant,
+/// and `value()`, `update()`, `fields()`, `as_values()` methods. Also implements
+/// the `TypeCompanion` trait.
+///
+/// ## On Enums
+///
+/// Generates a `VARIANT_NAMES` constant and `variant_names()` method.
+///
+/// ## Attributes
+///
+/// Container-level: `#[companion(derive_field(Trait), derive_value(Trait), value_fn = "name", ...)]`
+/// Field-level: `#[companion(skip, title = "Title", order = N)]`
+///
+/// Serde rename attributes (`#[serde(rename = "...")]`, `#[serde(rename_all = "...")]`)
+/// are respected for computing serialized names.
+#[proc_macro_derive(TypeCompanion, attributes(companion))]
+#[cfg(feature = "companion")]
+pub fn derive_type_companion(input: proc_macro::TokenStream) -> proc_macro::TokenStream {
+    companion::derive(input).unwrap_or_else(|err| err.into_compile_error().into())
 }
 
 /// Prepares a function to have its types extracted using `specta::function::fn_datatype!`

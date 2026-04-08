@@ -11,6 +11,9 @@
 #[cfg_attr(docsrs, doc(cfg(feature = "collect")))]
 #[doc(hidden)]
 pub mod collect;
+#[cfg(feature = "companion")]
+#[cfg_attr(docsrs, doc(cfg(feature = "companion")))]
+pub mod companion;
 mod constant;
 mod constants;
 pub mod datatype;
@@ -52,6 +55,11 @@ pub use specta_macros::specta_const;
 #[cfg(feature = "derive")]
 #[cfg_attr(docsrs, doc(cfg(feature = "derive")))]
 pub use specta_macros::parse_type_from_lit;
+
+#[doc(inline)]
+#[cfg(all(feature = "derive", feature = "companion"))]
+#[cfg_attr(docsrs, doc(cfg(all(feature = "derive", feature = "companion"))))]
+pub use specta_macros::TypeCompanion;
 
 #[doc(inline)]
 #[cfg(all(feature = "derive", feature = "function"))]

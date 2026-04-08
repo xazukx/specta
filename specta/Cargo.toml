@@ -31,6 +31,9 @@ derive = ["dep:specta-macros"]
 ## Support for collecting up a global type map
 collect = ["dep:ctor", "specta-macros/DO_NOT_USE_collect"]
 
+## Companion enum generation for structs and enums
+companion = ["specta-macros?/companion"]
+
 #! Features
 ## Support for exporting the types of Rust functions.
 function = ["specta-macros?/DO_NOT_USE_function", "dep:paste"]

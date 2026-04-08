@@ -1,0 +1,9 @@
+[package]
+name = "example-companion"
+version = "0.0.0"
+edition = "2024"
+publish = false
+
+[dependencies]
+specta = { workspace = true, features = ["derive", "companion"] }
+serde = { workspace = true, features = ["derive"] }
