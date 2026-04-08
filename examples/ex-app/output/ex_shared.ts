@@ -7,7 +7,6 @@ export type Pagination = {
 
 export enum Permission {
 	read_all = "read_all",
-	write_all = "write_all",
 }
 
 export type Role = "Admin" | "Member" | "Guest";

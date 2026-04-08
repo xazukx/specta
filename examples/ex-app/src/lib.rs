@@ -22,6 +22,14 @@ pub struct CreateUserRequest {
     pub permission: Permission,
 }
 
+#[derive(Type, Serialize, Deserialize)]
+#[serde(tag = "t", content = "c")]
+enum AdjacentlyTagged {
+    UnitVariant,
+    WithData(String),
+    WithStruct { x: i32, y: i32 },
+}
+
 #[specta_const]
 pub const CRATE_NAME: &str = "app";
 

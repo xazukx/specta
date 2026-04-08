@@ -1,16 +1,52 @@
 ResolvedTypes {
     types: Types(
         {
-            s:ex_app::AppConfig: Some(
+            s:std :: vec :: Vec < T >: Some(
                 NamedDataType {
-                    id: s:ex_app::AppConfig,
-                    name: "AppConfig",
+                    id: s:std :: vec :: Vec < T >,
+                    name: "Vec",
+                    docs: "",
+                    deprecated: None,
+                    module_path: "std::vec",
+                    location: Location {
+                        file: "D:\\Projects\\Oniz\\specta\\specta\\src\\type\\impls.rs",
+                        line: 58,
+                        column: 5,
+                    },
+                    generics: [
+                        (
+                            GenericReference {
+                                id: TypeId(0x149d7f3c925e22a726bd46b8eebd3618),
+                            },
+                            "T",
+                        ),
+                    ],
+                    inline: true,
+                    inner: List(
+                        List {
+                            ty: Reference(
+                                Generic(
+                                    GenericReference {
+                                        id: TypeId(0x149d7f3c925e22a726bd46b8eebd3618),
+                                    },
+                                ),
+                            ),
+                            length: None,
+                            unique: false,
+                        },
+                    ),
+                },
+            ),
+            s:ex_app::CreateUserRequest: Some(
+                NamedDataType {
+                    id: s:ex_app::CreateUserRequest,
+                    name: "CreateUserRequest",
                     docs: "",
                     deprecated: None,
                     module_path: "ex_app",
                     location: Location {
                         file: "examples\\ex-app\\src\\lib.rs",
-                        line: 5,
+                        line: 17,
                         column: 10,
                     },
                     generics: [],
@@ -21,7 +57,7 @@ ResolvedTypes {
                                 NamedFields {
                                     fields: [
                                         (
-                                            "app_name",
+                                            "name",
                                             Field {
                                                 optional: false,
                                                 flatten: false,
@@ -44,7 +80,103 @@ ResolvedTypes {
                                             },
                                         ),
                                         (
-                                            "debug",
+                                            "email",
+                                            Field {
+                                                optional: false,
+                                                flatten: false,
+                                                deprecated: None,
+                                                docs: "",
+                                                inline: false,
+                                                type_overridden: false,
+                                                attributes: {},
+                                                ty: Some(
+                                                    Reference(
+                                                        Named(
+                                                            NamedReference {
+                                                                id: s:std :: string :: String,
+                                                                generics: [],
+                                                                inline: true,
+                                                            },
+                                                        ),
+                                                    ),
+                                                ),
+                                            },
+                                        ),
+                                        (
+                                            "role",
+                                            Field {
+                                                optional: false,
+                                                flatten: false,
+                                                deprecated: None,
+                                                docs: "",
+                                                inline: false,
+                                                type_overridden: false,
+                                                attributes: {},
+                                                ty: Some(
+                                                    Reference(
+                                                        Named(
+                                                            NamedReference {
+                                                                id: s:ex_shared::Role,
+                                                                generics: [],
+                                                                inline: false,
+                                                            },
+                                                        ),
+                                                    ),
+                                                ),
+                                            },
+                                        ),
+                                        (
+                                            "permission",
+                                            Field {
+                                                optional: false,
+                                                flatten: false,
+                                                deprecated: None,
+                                                docs: "",
+                                                inline: false,
+                                                type_overridden: false,
+                                                attributes: {},
+                                                ty: Some(
+                                                    Reference(
+                                                        Named(
+                                                            NamedReference {
+                                                                id: s:ex_shared::Permission,
+                                                                generics: [],
+                                                                inline: false,
+                                                            },
+                                                        ),
+                                                    ),
+                                                ),
+                                            },
+                                        ),
+                                    ],
+                                },
+                            ),
+                            attributes: {},
+                        },
+                    ),
+                },
+            ),
+            s:ex_shared::Pagination: Some(
+                NamedDataType {
+                    id: s:ex_shared::Pagination,
+                    name: "Pagination",
+                    docs: "",
+                    deprecated: None,
+                    module_path: "ex_shared",
+                    location: Location {
+                        file: "examples\\ex-shared\\src\\lib.rs",
+                        line: 22,
+                        column: 10,
+                    },
+                    generics: [],
+                    inline: false,
+                    inner: Struct(
+                        Struct {
+                            fields: Named(
+                                NamedFields {
+                                    fields: [
+                                        (
+                                            "page",
                                             Field {
                                                 optional: false,
                                                 flatten: false,
@@ -55,7 +187,293 @@ ResolvedTypes {
                                                 attributes: {},
                                                 ty: Some(
                                                     Primitive(
-                                                        bool,
+                                                        u32,
+                                                    ),
+                                                ),
+                                            },
+                                        ),
+                                        (
+                                            "per_page",
+                                            Field {
+                                                optional: false,
+                                                flatten: false,
+                                                deprecated: None,
+                                                docs: "",
+                                                inline: false,
+                                                type_overridden: false,
+                                                attributes: {},
+                                                ty: Some(
+                                                    Primitive(
+                                                        u32,
+                                                    ),
+                                                ),
+                                            },
+                                        ),
+                                        (
+                                            "total",
+                                            Field {
+                                                optional: false,
+                                                flatten: false,
+                                                deprecated: None,
+                                                docs: "",
+                                                inline: false,
+                                                type_overridden: false,
+                                                attributes: {},
+                                                ty: Some(
+                                                    Primitive(
+                                                        u32,
+                                                    ),
+                                                ),
+                                            },
+                                        ),
+                                    ],
+                                },
+                            ),
+                            attributes: {},
+                        },
+                    ),
+                },
+            ),
+            s:ex_shared::UserId: Some(
+                NamedDataType {
+                    id: s:ex_shared::UserId,
+                    name: "UserId",
+                    docs: "",
+                    deprecated: None,
+                    module_path: "ex_shared",
+                    location: Location {
+                        file: "examples\\ex-shared\\src\\lib.rs",
+                        line: 4,
+                        column: 10,
+                    },
+                    generics: [],
+                    inline: false,
+                    inner: Struct(
+                        Struct {
+                            fields: Unnamed(
+                                UnnamedFields {
+                                    fields: [
+                                        Field {
+                                            optional: false,
+                                            flatten: false,
+                                            deprecated: None,
+                                            docs: "",
+                                            inline: false,
+                                            type_overridden: false,
+                                            attributes: {},
+                                            ty: Some(
+                                                Primitive(
+                                                    u32,
+                                                ),
+                                            ),
+                                        },
+                                    ],
+                                },
+                            ),
+                            attributes: {},
+                        },
+                    ),
+                },
+            ),
+            s:ex_app::AdjacentlyTagged: Some(
+                NamedDataType {
+                    id: s:ex_app::AdjacentlyTagged,
+                    name: "AdjacentlyTagged",
+                    docs: "",
+                    deprecated: None,
+                    module_path: "ex_app",
+                    location: Location {
+                        file: "examples\\ex-app\\src\\lib.rs",
+                        line: 25,
+                        column: 10,
+                    },
+                    generics: [],
+                    inline: false,
+                    inner: Enum(
+                        Enum {
+                            variants: [
+                                (
+                                    "UnitVariant",
+                                    Variant {
+                                        skip: false,
+                                        docs: "",
+                                        deprecated: None,
+                                        fields: Unit,
+                                        attributes: {},
+                                        type_overridden: false,
+                                    },
+                                ),
+                                (
+                                    "WithData",
+                                    Variant {
+                                        skip: false,
+                                        docs: "",
+                                        deprecated: None,
+                                        fields: Unnamed(
+                                            UnnamedFields {
+                                                fields: [
+                                                    Field {
+                                                        optional: false,
+                                                        flatten: false,
+                                                        deprecated: None,
+                                                        docs: "",
+                                                        inline: false,
+                                                        type_overridden: false,
+                                                        attributes: {},
+                                                        ty: Some(
+                                                            Reference(
+                                                                Named(
+                                                                    NamedReference {
+                                                                        id: s:std :: string :: String,
+                                                                        generics: [],
+                                                                        inline: true,
+                                                                    },
+                                                                ),
+                                                            ),
+                                                        ),
+                                                    },
+                                                ],
+                                            },
+                                        ),
+                                        attributes: {},
+                                        type_overridden: false,
+                                    },
+                                ),
+                                (
+                                    "WithStruct",
+                                    Variant {
+                                        skip: false,
+                                        docs: "",
+                                        deprecated: None,
+                                        fields: Named(
+                                            NamedFields {
+                                                fields: [
+                                                    (
+                                                        "x",
+                                                        Field {
+                                                            optional: false,
+                                                            flatten: false,
+                                                            deprecated: None,
+                                                            docs: "",
+                                                            inline: false,
+                                                            type_overridden: false,
+                                                            attributes: {},
+                                                            ty: Some(
+                                                                Primitive(
+                                                                    i32,
+                                                                ),
+                                                            ),
+                                                        },
+                                                    ),
+                                                    (
+                                                        "y",
+                                                        Field {
+                                                            optional: false,
+                                                            flatten: false,
+                                                            deprecated: None,
+                                                            docs: "",
+                                                            inline: false,
+                                                            type_overridden: false,
+                                                            attributes: {},
+                                                            ty: Some(
+                                                                Primitive(
+                                                                    i32,
+                                                                ),
+                                                            ),
+                                                        },
+                                                    ),
+                                                ],
+                                            },
+                                        ),
+                                        attributes: {},
+                                        type_overridden: false,
+                                    },
+                                ),
+                            ],
+                            attributes: {
+                                "serde:container:content": "c",
+                                "serde:container:tag": "t",
+                            },
+                        },
+                    ),
+                },
+            ),
+            s:ex_app::UserListResponse: Some(
+                NamedDataType {
+                    id: s:ex_app::UserListResponse,
+                    name: "UserListResponse",
+                    docs: "",
+                    deprecated: None,
+                    module_path: "ex_app",
+                    location: Location {
+                        file: "examples\\ex-app\\src\\lib.rs",
+                        line: 11,
+                        column: 10,
+                    },
+                    generics: [],
+                    inline: false,
+                    inner: Struct(
+                        Struct {
+                            fields: Named(
+                                NamedFields {
+                                    fields: [
+                                        (
+                                            "users",
+                                            Field {
+                                                optional: false,
+                                                flatten: false,
+                                                deprecated: None,
+                                                docs: "",
+                                                inline: false,
+                                                type_overridden: false,
+                                                attributes: {},
+                                                ty: Some(
+                                                    Reference(
+                                                        Named(
+                                                            NamedReference {
+                                                                id: s:std :: vec :: Vec < T >,
+                                                                generics: [
+                                                                    (
+                                                                        GenericReference {
+                                                                            id: TypeId(0x149d7f3c925e22a726bd46b8eebd3618),
+                                                                        },
+                                                                        Reference(
+                                                                            Named(
+                                                                                NamedReference {
+                                                                                    id: s:ex_shared::User,
+                                                                                    generics: [],
+                                                                                    inline: false,
+                                                                                },
+                                                                            ),
+                                                                        ),
+                                                                    ),
+                                                                ],
+                                                                inline: true,
+                                                            },
+                                                        ),
+                                                    ),
+                                                ),
+                                            },
+                                        ),
+                                        (
+                                            "pagination",
+                                            Field {
+                                                optional: false,
+                                                flatten: false,
+                                                deprecated: None,
+                                                docs: "",
+                                                inline: false,
+                                                type_overridden: false,
+                                                attributes: {},
+                                                ty: Some(
+                                                    Reference(
+                                                        Named(
+                                                            NamedReference {
+                                                                id: s:ex_shared::Pagination,
+                                                                generics: [],
+                                                                inline: false,
+                                                            },
+                                                        ),
                                                     ),
                                                 ),
                                             },
@@ -187,39 +605,122 @@ ResolvedTypes {
                     ),
                 },
             ),
-            s:ex_shared::UserId: Some(
+            s:std :: string :: String: Some(
                 NamedDataType {
-                    id: s:ex_shared::UserId,
-                    name: "UserId",
+                    id: s:std :: string :: String,
+                    name: "String",
+                    docs: "",
+                    deprecated: None,
+                    module_path: "std::string",
+                    location: Location {
+                        file: "specta\\src\\type\\impls.rs",
+                        line: 58,
+                        column: 5,
+                    },
+                    generics: [],
+                    inline: true,
+                    inner: Primitive(
+                        str,
+                    ),
+                },
+            ),
+            s:ex_shared::Permission: Some(
+                NamedDataType {
+                    id: s:ex_shared::Permission,
+                    name: "Permission",
                     docs: "",
                     deprecated: None,
                     module_path: "ex_shared",
                     location: Location {
                         file: "examples\\ex-shared\\src\\lib.rs",
-                        line: 4,
+                        line: 29,
+                        column: 10,
+                    },
+                    generics: [],
+                    inline: false,
+                    inner: Enum(
+                        Enum {
+                            variants: [
+                                (
+                                    "ReadAll",
+                                    Variant {
+                                        skip: false,
+                                        docs: "",
+                                        deprecated: None,
+                                        fields: Unit,
+                                        attributes: {},
+                                        type_overridden: false,
+                                    },
+                                ),
+                            ],
+                            attributes: {
+                                "serde:container:rename_all_deserialize": "snake_case",
+                                "serde:container:rename_all_serialize": "snake_case",
+                                "specta:ts_enum": true,
+                            },
+                        },
+                    ),
+                },
+            ),
+            s:ex_app::AppConfig: Some(
+                NamedDataType {
+                    id: s:ex_app::AppConfig,
+                    name: "AppConfig",
+                    docs: "",
+                    deprecated: None,
+                    module_path: "ex_app",
+                    location: Location {
+                        file: "examples\\ex-app\\src\\lib.rs",
+                        line: 5,
                         column: 10,
                     },
                     generics: [],
                     inline: false,
                     inner: Struct(
                         Struct {
-                            fields: Unnamed(
-                                UnnamedFields {
+                            fields: Named(
+                                NamedFields {
                                     fields: [
-                                        Field {
-                                            optional: false,
-                                            flatten: false,
-                                            deprecated: None,
-                                            docs: "",
-                                            inline: false,
-                                            type_overridden: false,
-                                            attributes: {},
-                                            ty: Some(
-                                                Primitive(
-                                                    u32,
+                                        (
+                                            "app_name",
+                                            Field {
+                                                optional: false,
+                                                flatten: false,
+                                                deprecated: None,
+                                                docs: "",
+                                                inline: false,
+                                                type_overridden: false,
+                                                attributes: {},
+                                                ty: Some(
+                                                    Reference(
+                                                        Named(
+                                                            NamedReference {
+                                                                id: s:std :: string :: String,
+                                                                generics: [],
+                                                                inline: true,
+                                                            },
+                                                        ),
+                                                    ),
                                                 ),
-                                            ),
-                                        },
+                                            },
+                                        ),
+                                        (
+                                            "debug",
+                                            Field {
+                                                optional: false,
+                                                flatten: false,
+                                                deprecated: None,
+                                                docs: "",
+                                                inline: false,
+                                                type_overridden: false,
+                                                attributes: {},
+                                                ty: Some(
+                                                    Primitive(
+                                                        bool,
+                                                    ),
+                                                ),
+                                            },
+                                        ),
                                     ],
                                 },
                             ),
@@ -281,395 +782,6 @@ ResolvedTypes {
                             ],
                             attributes: {},
                         },
-                    ),
-                },
-            ),
-            s:ex_shared::Pagination: Some(
-                NamedDataType {
-                    id: s:ex_shared::Pagination,
-                    name: "Pagination",
-                    docs: "",
-                    deprecated: None,
-                    module_path: "ex_shared",
-                    location: Location {
-                        file: "examples\\ex-shared\\src\\lib.rs",
-                        line: 22,
-                        column: 10,
-                    },
-                    generics: [],
-                    inline: false,
-                    inner: Struct(
-                        Struct {
-                            fields: Named(
-                                NamedFields {
-                                    fields: [
-                                        (
-                                            "page",
-                                            Field {
-                                                optional: false,
-                                                flatten: false,
-                                                deprecated: None,
-                                                docs: "",
-                                                inline: false,
-                                                type_overridden: false,
-                                                attributes: {},
-                                                ty: Some(
-                                                    Primitive(
-                                                        u32,
-                                                    ),
-                                                ),
-                                            },
-                                        ),
-                                        (
-                                            "per_page",
-                                            Field {
-                                                optional: false,
-                                                flatten: false,
-                                                deprecated: None,
-                                                docs: "",
-                                                inline: false,
-                                                type_overridden: false,
-                                                attributes: {},
-                                                ty: Some(
-                                                    Primitive(
-                                                        u32,
-                                                    ),
-                                                ),
-                                            },
-                                        ),
-                                        (
-                                            "total",
-                                            Field {
-                                                optional: false,
-                                                flatten: false,
-                                                deprecated: None,
-                                                docs: "",
-                                                inline: false,
-                                                type_overridden: false,
-                                                attributes: {},
-                                                ty: Some(
-                                                    Primitive(
-                                                        u32,
-                                                    ),
-                                                ),
-                                            },
-                                        ),
-                                    ],
-                                },
-                            ),
-                            attributes: {},
-                        },
-                    ),
-                },
-            ),
-            s:ex_app::CreateUserRequest: Some(
-                NamedDataType {
-                    id: s:ex_app::CreateUserRequest,
-                    name: "CreateUserRequest",
-                    docs: "",
-                    deprecated: None,
-                    module_path: "ex_app",
-                    location: Location {
-                        file: "examples\\ex-app\\src\\lib.rs",
-                        line: 17,
-                        column: 10,
-                    },
-                    generics: [],
-                    inline: false,
-                    inner: Struct(
-                        Struct {
-                            fields: Named(
-                                NamedFields {
-                                    fields: [
-                                        (
-                                            "name",
-                                            Field {
-                                                optional: false,
-                                                flatten: false,
-                                                deprecated: None,
-                                                docs: "",
-                                                inline: false,
-                                                type_overridden: false,
-                                                attributes: {},
-                                                ty: Some(
-                                                    Reference(
-                                                        Named(
-                                                            NamedReference {
-                                                                id: s:std :: string :: String,
-                                                                generics: [],
-                                                                inline: true,
-                                                            },
-                                                        ),
-                                                    ),
-                                                ),
-                                            },
-                                        ),
-                                        (
-                                            "email",
-                                            Field {
-                                                optional: false,
-                                                flatten: false,
-                                                deprecated: None,
-                                                docs: "",
-                                                inline: false,
-                                                type_overridden: false,
-                                                attributes: {},
-                                                ty: Some(
-                                                    Reference(
-                                                        Named(
-                                                            NamedReference {
-                                                                id: s:std :: string :: String,
-                                                                generics: [],
-                                                                inline: true,
-                                                            },
-                                                        ),
-                                                    ),
-                                                ),
-                                            },
-                                        ),
-                                        (
-                                            "role",
-                                            Field {
-                                                optional: false,
-                                                flatten: false,
-                                                deprecated: None,
-                                                docs: "",
-                                                inline: false,
-                                                type_overridden: false,
-                                                attributes: {},
-                                                ty: Some(
-                                                    Reference(
-                                                        Named(
-                                                            NamedReference {
-                                                                id: s:ex_shared::Role,
-                                                                generics: [],
-                                                                inline: false,
-                                                            },
-                                                        ),
-                                                    ),
-                                                ),
-                                            },
-                                        ),
-                                        (
-                                            "permission",
-                                            Field {
-                                                optional: false,
-                                                flatten: false,
-                                                deprecated: None,
-                                                docs: "",
-                                                inline: false,
-                                                type_overridden: false,
-                                                attributes: {},
-                                                ty: Some(
-                                                    Reference(
-                                                        Named(
-                                                            NamedReference {
-                                                                id: s:ex_shared::Permission,
-                                                                generics: [],
-                                                                inline: false,
-                                                            },
-                                                        ),
-                                                    ),
-                                                ),
-                                            },
-                                        ),
-                                    ],
-                                },
-                            ),
-                            attributes: {},
-                        },
-                    ),
-                },
-            ),
-            s:ex_shared::Permission: Some(
-                NamedDataType {
-                    id: s:ex_shared::Permission,
-                    name: "Permission",
-                    docs: "",
-                    deprecated: None,
-                    module_path: "ex_shared",
-                    location: Location {
-                        file: "examples\\ex-shared\\src\\lib.rs",
-                        line: 29,
-                        column: 10,
-                    },
-                    generics: [],
-                    inline: false,
-                    inner: Enum(
-                        Enum {
-                            variants: [
-                                (
-                                    "ReadAll",
-                                    Variant {
-                                        skip: false,
-                                        docs: "",
-                                        deprecated: None,
-                                        fields: Unit,
-                                        attributes: {},
-                                        type_overridden: false,
-                                    },
-                                ),
-                                (
-                                    "WriteAll",
-                                    Variant {
-                                        skip: false,
-                                        docs: "",
-                                        deprecated: None,
-                                        fields: Unit,
-                                        attributes: {},
-                                        type_overridden: false,
-                                    },
-                                ),
-                            ],
-                            attributes: {
-                                "serde:container:rename_all_deserialize": "snake_case",
-                                "serde:container:rename_all_serialize": "snake_case",
-                                "specta:ts_enum": true,
-                            },
-                        },
-                    ),
-                },
-            ),
-            s:ex_app::UserListResponse: Some(
-                NamedDataType {
-                    id: s:ex_app::UserListResponse,
-                    name: "UserListResponse",
-                    docs: "",
-                    deprecated: None,
-                    module_path: "ex_app",
-                    location: Location {
-                        file: "examples\\ex-app\\src\\lib.rs",
-                        line: 11,
-                        column: 10,
-                    },
-                    generics: [],
-                    inline: false,
-                    inner: Struct(
-                        Struct {
-                            fields: Named(
-                                NamedFields {
-                                    fields: [
-                                        (
-                                            "users",
-                                            Field {
-                                                optional: false,
-                                                flatten: false,
-                                                deprecated: None,
-                                                docs: "",
-                                                inline: false,
-                                                type_overridden: false,
-                                                attributes: {},
-                                                ty: Some(
-                                                    Reference(
-                                                        Named(
-                                                            NamedReference {
-                                                                id: s:std :: vec :: Vec < T >,
-                                                                generics: [
-                                                                    (
-                                                                        GenericReference {
-                                                                            id: TypeId(0x149d7f3c925e22a726bd46b8eebd3618),
-                                                                        },
-                                                                        Reference(
-                                                                            Named(
-                                                                                NamedReference {
-                                                                                    id: s:ex_shared::User,
-                                                                                    generics: [],
-                                                                                    inline: false,
-                                                                                },
-                                                                            ),
-                                                                        ),
-                                                                    ),
-                                                                ],
-                                                                inline: true,
-                                                            },
-                                                        ),
-                                                    ),
-                                                ),
-                                            },
-                                        ),
-                                        (
-                                            "pagination",
-                                            Field {
-                                                optional: false,
-                                                flatten: false,
-                                                deprecated: None,
-                                                docs: "",
-                                                inline: false,
-                                                type_overridden: false,
-                                                attributes: {},
-                                                ty: Some(
-                                                    Reference(
-                                                        Named(
-                                                            NamedReference {
-                                                                id: s:ex_shared::Pagination,
-                                                                generics: [],
-                                                                inline: false,
-                                                            },
-                                                        ),
-                                                    ),
-                                                ),
-                                            },
-                                        ),
-                                    ],
-                                },
-                            ),
-                            attributes: {},
-                        },
-                    ),
-                },
-            ),
-            s:std :: vec :: Vec < T >: Some(
-                NamedDataType {
-                    id: s:std :: vec :: Vec < T >,
-                    name: "Vec",
-                    docs: "",
-                    deprecated: None,
-                    module_path: "std::vec",
-                    location: Location {
-                        file: "D:\\Projects\\Oniz\\specta\\specta\\src\\type\\impls.rs",
-                        line: 58,
-                        column: 5,
-                    },
-                    generics: [
-                        (
-                            GenericReference {
-                                id: TypeId(0x149d7f3c925e22a726bd46b8eebd3618),
-                            },
-                            "T",
-                        ),
-                    ],
-                    inline: true,
-                    inner: List(
-                        List {
-                            ty: Reference(
-                                Generic(
-                                    GenericReference {
-                                        id: TypeId(0x149d7f3c925e22a726bd46b8eebd3618),
-                                    },
-                                ),
-                            ),
-                            length: None,
-                            unique: false,
-                        },
-                    ),
-                },
-            ),
-            s:std :: string :: String: Some(
-                NamedDataType {
-                    id: s:std :: string :: String,
-                    name: "String",
-                    docs: "",
-                    deprecated: None,
-                    module_path: "std::string",
-                    location: Location {
-                        file: "specta\\src\\type\\impls.rs",
-                        line: 58,
-                        column: 5,
-                    },
-                    generics: [],
-                    inline: true,
-                    inner: Primitive(
-                        str,
                     ),
                 },
             ),

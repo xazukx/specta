@@ -1,6 +1,66 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$defs": {
+    "AdjacentlyTagged": {
+      "title": "AdjacentlyTagged",
+      "oneOf": [
+        {
+          "type": "object",
+          "properties": {
+            "t": {
+              "const": "UnitVariant"
+            }
+          },
+          "required": [
+            "t"
+          ]
+        },
+        {
+          "type": "object",
+          "properties": {
+            "t": {
+              "const": "WithData"
+            },
+            "c": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "t",
+            "c"
+          ]
+        },
+        {
+          "type": "object",
+          "properties": {
+            "t": {
+              "const": "WithStruct"
+            },
+            "c": {
+              "type": "object",
+              "properties": {
+                "x": {
+                  "type": "integer",
+                  "format": "int32"
+                },
+                "y": {
+                  "type": "integer",
+                  "format": "int32"
+                }
+              },
+              "required": [
+                "x",
+                "y"
+              ]
+            }
+          },
+          "required": [
+            "t",
+            "c"
+          ]
+        }
+      ]
+    },
     "AppConfig": {
       "title": "AppConfig",
       "type": "object",
@@ -69,10 +129,7 @@
     },
     "Permission": {
       "title": "Permission",
-      "enum": [
-        "read_all",
-        "write_all"
-      ]
+      "const": "read_all"
     },
     "Role": {
       "title": "Role",

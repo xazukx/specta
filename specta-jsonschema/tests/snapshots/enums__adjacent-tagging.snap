@@ -1,6 +1,5 @@
 ---
 source: specta-jsonschema/tests/enums.rs
-assertion_line: 224
 expression: value
 ---
 {

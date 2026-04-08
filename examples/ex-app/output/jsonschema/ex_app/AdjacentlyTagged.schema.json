@@ -1,0 +1,61 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "AdjacentlyTagged",
+  "oneOf": [
+    {
+      "type": "object",
+      "properties": {
+        "t": {
+          "const": "UnitVariant"
+        }
+      },
+      "required": [
+        "t"
+      ]
+    },
+    {
+      "type": "object",
+      "properties": {
+        "t": {
+          "const": "WithData"
+        },
+        "c": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "t",
+        "c"
+      ]
+    },
+    {
+      "type": "object",
+      "properties": {
+        "t": {
+          "const": "WithStruct"
+        },
+        "c": {
+          "type": "object",
+          "properties": {
+            "x": {
+              "type": "integer",
+              "format": "int32"
+            },
+            "y": {
+              "type": "integer",
+              "format": "int32"
+            }
+          },
+          "required": [
+            "x",
+            "y"
+          ]
+        }
+      },
+      "required": [
+        "t",
+        "c"
+      ]
+    }
+  ]
+}

@@ -108,6 +108,10 @@ impl Zod {
         }
     }
 
+    pub fn v3() -> Self {
+        Self::new().zod_version(ZodVersion::V3)
+    }
+
     /// Provide a prelude which is added to the start of all exported files.
     pub fn framework_prelude(mut self, prelude: impl Into<Cow<'static, str>>) -> Self {
         self.framework_prelude = prelude.into();

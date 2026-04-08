@@ -135,7 +135,7 @@ fn zod_export_smoke() {
     let types = Types::default().register::<Demo>();
     let resolved = ResolvedTypes::from_resolved_types(types);
 
-    let out = Zod::default()
+    let out = Zod::v3()
         .bigint(BigIntExportBehavior::Number)
         .export(&resolved)
         .unwrap();
@@ -174,19 +174,19 @@ fn zod_primitives_smoke() {
 #[test]
 fn zod_bigint_export_behaviors() {
     for_bigint_types!(T -> |_| {
-        assert!(inline_for::<T>(&Zod::default()).is_err());
-        assert!(inline_for::<T>(&Zod::default().bigint(BigIntExportBehavior::Fail)).is_err());
+        assert!(inline_for::<T>(&Zod::v3()).is_err());
+        assert!(inline_for::<T>(&Zod::v3().bigint(BigIntExportBehavior::Fail)).is_err());
 
         assert_eq!(
-            inline_for::<T>(&Zod::default().bigint(BigIntExportBehavior::String)).unwrap(),
+            inline_for::<T>(&Zod::v3().bigint(BigIntExportBehavior::String)).unwrap(),
             "z.string()"
         );
         assert_eq!(
-            inline_for::<T>(&Zod::default().bigint(BigIntExportBehavior::Number)).unwrap(),
+            inline_for::<T>(&Zod::v3().bigint(BigIntExportBehavior::Number)).unwrap(),
             "z.number()"
         );
         assert_eq!(
-            inline_for::<T>(&Zod::default().bigint(BigIntExportBehavior::BigInt)).unwrap(),
+            inline_for::<T>(&Zod::v3().bigint(BigIntExportBehavior::BigInt)).unwrap(),
             "z.bigint()"
         );
     });
@@ -365,7 +365,9 @@ fn temp_dir() -> TempDir {
 
 fn export_for<T: Type>() -> Result<String, specta_zod::Error> {
     let types = Types::default().register::<T>();
-    Zod::default().export(&ResolvedTypes::from_resolved_types(types))
+    Zod::default()
+        .zod_version(ZodVersion::V3)
+        .export(&ResolvedTypes::from_resolved_types(types))
 }
 
 fn export_for_v4<T: Type>() -> Result<String, specta_zod::Error> {
@@ -492,12 +494,6 @@ fn zod_v4_export_smoke() {
     assert!(out.contains("export type V4Demo = z.infer<typeof V4DemoSchema>;"));
 }
 
-#[test]
-fn zod_version_defaults_to_v3() {
-    let zod = Zod::default();
-    assert_eq!(zod.zod_version, ZodVersion::V3);
-}
-
 // --- ts_enum enums still export as z.literal/z.union in Zod ---
 
 #[derive(Type, Serialize)]
@@ -514,7 +510,7 @@ fn zod_v3_enum_outputs_union_of_literals() {
     let types = Types::default().register::<Direction>();
     let resolved = ResolvedTypes::from_resolved_types(types);
 
-    let out = Zod::default().export(&resolved).unwrap();
+    let out = Zod::v3().export(&resolved).unwrap();
 
     assert!(
         out.contains("export const DirectionSchema = z.union([z.literal(\"Down\"), z.literal(\"Left\"), z.literal(\"Right\"), z.literal(\"Up\")]);"),
