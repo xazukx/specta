@@ -258,6 +258,17 @@ fn datatype(
     ctx: &mut GoContext,
 ) -> Result<(), Error> {
     match dt {
+        DataType::Constant(c) => {
+            return datatype(
+                s,
+                exporter,
+                types,
+                generic_names,
+                &DataType::Primitive(c.to_primitive()),
+                location,
+                ctx,
+            );
+        }
         DataType::Primitive(p) => match p {
             Primitive::i8 => s.push_str("int8"),
             Primitive::i16 => s.push_str("int16"),

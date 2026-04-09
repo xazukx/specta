@@ -40,9 +40,7 @@ fn resolved_string_enum(e: &Enum) -> Option<Vec<(&str, &str)>> {
         .map(|(variant_name, variant)| match variant.fields() {
             // Unit variants carry their serialized name as the variant key
             // (only when serde processing was applied)
-            Fields::Unit if serde_processed => {
-                Some((variant_name.as_ref(), variant_name.as_ref()))
-            }
+            Fields::Unit if serde_processed => Some((variant_name.as_ref(), variant_name.as_ref())),
             Fields::Unit => None,
             _ => enum_string_raw_value(variant).map(|raw| (variant_name.as_ref(), raw)),
         })
@@ -203,6 +201,16 @@ pub fn datatype_to_swift(
     }
 
     match dt {
+        DataType::Constant(c) => {
+            return datatype_to_swift(
+                swift,
+                types,
+                &DataType::Primitive(c.to_primitive()),
+                generic_scope,
+                is_export,
+                reference,
+            );
+        }
         DataType::Primitive(p) => primitive_to_swift(p),
         // DataType::Literal(l) => literal_to_swift(l),
         DataType::List(l) => list_to_swift(swift, types, l, generic_scope.clone()),

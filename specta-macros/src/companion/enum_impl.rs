@@ -3,9 +3,7 @@ use quote::quote;
 use syn::{DataEnum, Ident};
 
 use super::attr::CompanionFieldAttr;
-use super::serde_rename::{
-    SerdeContainerRename, parse_serde_item_rename, resolve_serialized_name,
-};
+use super::serde_rename::{SerdeContainerRename, parse_serde_item_rename, resolve_serialized_name};
 use crate::utils::{parse_attrs, unraw_raw_ident};
 
 pub fn generate_enum_companion(

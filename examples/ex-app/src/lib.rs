@@ -23,7 +23,7 @@ pub struct CreateUserRequest {
 }
 
 #[derive(Type, Serialize, Deserialize)]
-#[serde(tag = "t", content = "c")]
+#[serde(rename_all = "snake_case", tag = "t", content = "c")]
 enum AdjacentlyTagged {
     UnitVariant,
     WithData(String),
@@ -36,8 +36,6 @@ pub const CRATE_NAME: &str = "app";
 #[cfg(test)]
 mod tests {
     use std::fs;
-
-    use specta::ResolvedTypes;
 
     #[test]
     fn export_to_typescript_files() {
@@ -170,9 +168,6 @@ mod tests {
         let serde_resolved = specta_serde::apply(types.clone())
             .expect("serde transformation failed")
             .with_constants(constants.clone());
-        let resolved = ResolvedTypes::from_types_and_constants(types, constants);
-        let sr_str = format!("{serde_resolved:#?}");
-        let r_str = format!("{resolved:#?}");
 
         let out_dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("output/zod");
 
@@ -185,8 +180,6 @@ mod tests {
         // Read the generated files
         let shared_path = out_dir.join("ex_shared.ts");
         let app_path = out_dir.join("ex_app.ts");
-        fs::write(out_dir.join("resolved.txt"), r_str).unwrap();
-        fs::write(out_dir.join("serde_resolved.txt"), sr_str).unwrap();
 
         assert!(
             shared_path.exists(),

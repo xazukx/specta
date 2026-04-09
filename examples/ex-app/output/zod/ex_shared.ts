@@ -6,7 +6,7 @@ export const PaginationSchema = z.object({
 	total: z.int(),
 });
 
-export const PermissionSchema = z.literal("read_all");
+export const PermissionSchema = z.enum(["read_all", "write_all"]);
 
 export const RoleSchema = z.enum(["Admin", "Guest", "Member"]);
 

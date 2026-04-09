@@ -1,5 +1,8 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "title": "Permission",
-  "const": "read_all"
+  "enum": [
+    "read_all",
+    "write_all"
+  ]
 }

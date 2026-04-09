@@ -9,8 +9,8 @@ use std::{
 use specta::{
     Types,
     datatype::{
-        DataType, Deprecated, Enum, Field, Fields, GenericReference, Reference, Struct, Tuple,
-        Variant,
+        ConstantValue, DataType, Deprecated, Enum, Field, Fields, GenericReference, Reference,
+        Struct, Tuple, Variant,
     },
 };
 
@@ -599,6 +599,12 @@ fn variant_discriminator(variant: &Variant) -> Option<(String, DiscriminatorValu
 }
 
 fn string_literal_datatype_value(ty: &DataType) -> Option<String> {
+    match ty {
+        DataType::Constant(ConstantValue::String(s)) => return Some(s.to_string()),
+        DataType::Constant(_) => return None,
+        _ => {}
+    }
+
     let DataType::Enum(enm) = ty else {
         return None;
     };

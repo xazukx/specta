@@ -1,6 +1,6 @@
 use serde::Serialize;
-use specta::companion::{CompanionField, CompanionValue, TypeCompanion};
 use specta::TypeCompanion;
+use specta::companion::{CompanionField, CompanionValue, TypeCompanion};
 use std::convert::TryFrom;
 
 // ──────────────────────────────────────────────────────────────────────────────
@@ -203,7 +203,11 @@ fn type_companion_trait() {
 // ────────────────────────��────────────────────────────────���────────────────────
 
 #[derive(Clone, TypeCompanion)]
-#[companion(value_fn = "get_value", update_fn = "set_value", fields_fn = "all_fields")]
+#[companion(
+    value_fn = "get_value",
+    update_fn = "set_value",
+    fields_fn = "all_fields"
+)]
 struct CustomMethods {
     x: i32,
 }
@@ -291,10 +295,7 @@ enum MixedEnum {
 
 #[test]
 fn enum_serde_rename_variant() {
-    assert_eq!(
-        MixedEnum::VARIANT_NAMES,
-        &["ACTIVE", "INACTIVE", "on_hold"]
-    );
+    assert_eq!(MixedEnum::VARIANT_NAMES, &["ACTIVE", "INACTIVE", "on_hold"]);
 }
 
 // ────────────────────────────���─────────────────────────────────────────────────

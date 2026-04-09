@@ -1,6 +1,6 @@
 use serde::Serialize;
-use specta::companion::{CompanionField, CompanionValue, TypeCompanion};
 use specta::TypeCompanion;
+use specta::companion::{CompanionField, CompanionValue, TypeCompanion};
 
 // ─── Struct example: full companion generation ──────────────────────────────
 
@@ -45,7 +45,12 @@ fn print_fields<F: CompanionField + 'static, V: CompanionValue, T: TypeCompanion
     println!("Fields:");
     for field in T::fields() {
         let value = item.value(*field);
-        println!("  {} ({}): {}", field.name(), field.type_str(), value.field_name());
+        println!(
+            "  {} ({}): {}",
+            field.name(),
+            field.type_str(),
+            value.field_name()
+        );
     }
 }
 
@@ -76,10 +81,7 @@ fn main() {
     }
 
     // CompanionField metadata
-    println!(
-        "UserName title: {}",
-        UserProfileField::UserName.title()
-    );
+    println!("UserName title: {}", UserProfileField::UserName.title());
 
     // Display and FromStr
     let field_str = UserProfileField::Id.to_string();

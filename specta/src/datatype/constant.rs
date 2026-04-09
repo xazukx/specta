@@ -1,5 +1,7 @@
 use std::borrow::Cow;
 
+use super::{DataType, Primitive};
+
 /// A compile-time constant value that can be exported by language exporters.
 ///
 /// This represents the runtime value of a Rust constant, allowing exporters
@@ -72,5 +74,29 @@ impl From<String> for ConstantValue {
 impl From<bool> for ConstantValue {
     fn from(b: bool) -> Self {
         Self::Bool(b)
+    }
+}
+
+impl ConstantValue {
+    /// Returns the [`Primitive`] type that corresponds to this constant value.
+    ///
+    /// This is useful for language exporters that do not support constant/literal
+    /// types and need to fall back to the underlying primitive type.
+    pub fn to_primitive(&self) -> Primitive {
+        match self {
+            Self::String(_) => Primitive::str,
+            Self::Integer(_) => Primitive::i128,
+            Self::UnsignedInteger(_) => Primitive::u128,
+            Self::Float(_) => Primitive::f64,
+            Self::Bool(_) => Primitive::bool,
+            Self::Bytes(_) => Primitive::u8,
+            Self::Null => Primitive::str,
+        }
+    }
+}
+
+impl From<ConstantValue> for DataType {
+    fn from(v: ConstantValue) -> Self {
+        Self::Constant(v)
     }
 }

@@ -5,8 +5,8 @@ use std::{borrow::Cow, cell::RefCell, fmt::Write as _};
 use specta::{
     ResolvedTypes, Types,
     datatype::{
-        DataType, Enum, Fields, GenericReference, List, Map, NamedDataType, NamedReference,
-        OpaqueReference, Primitive, Reference, Struct, Tuple,
+        ConstantValue, DataType, Enum, Fields, GenericReference, List, Map, NamedDataType,
+        NamedReference, OpaqueReference, Primitive, Reference, Struct, Tuple,
     },
 };
 
@@ -255,6 +255,7 @@ fn datatype(
 ) -> Result<(), Error> {
     match dt {
         DataType::Primitive(p) => s.push_str(primitive_dt(exporter, p, location)?),
+        DataType::Constant(c) => constant_zod_dt(s, c),
         DataType::List(l) => list_dt(s, exporter, types, l, location, generics)?,
         DataType::Map(m) => map_dt(s, exporter, types, m, location, generics)?,
         DataType::Nullable(def) => {
@@ -300,6 +301,22 @@ fn datatype(
     }
 
     Ok(())
+}
+
+fn constant_zod_dt(s: &mut String, value: &ConstantValue) {
+    match value {
+        ConstantValue::String(v) => write!(s, "z.literal(\"{}\")", v.escape_default()).unwrap(),
+        ConstantValue::Integer(n) => write!(s, "z.literal({n})").unwrap(),
+        ConstantValue::UnsignedInteger(n) => write!(s, "z.literal({n})").unwrap(),
+        ConstantValue::Float(bits) => {
+            let v = bits.to_f64();
+            write!(s, "z.literal({v})").unwrap();
+        }
+        ConstantValue::Bool(b) => {
+            write!(s, "z.literal({})", if *b { "true" } else { "false" }).unwrap()
+        }
+        ConstantValue::Bytes(_) | ConstantValue::Null => s.push_str("z.null()"),
+    }
 }
 
 fn primitive_dt(
@@ -557,7 +574,6 @@ fn enum_dt(
 
     // In v4, string-only enums with 2+ unit variants use z.enum(["A", "B"])
     if exporter.zod_version == ZodVersion::V4
-        && filtered.len() >= 2
         && filtered
             .iter()
             .all(|(_, v)| matches!(v.fields(), Fields::Unit))

@@ -106,8 +106,8 @@ use std::{
 use specta::{
     ResolvedTypes, Types,
     datatype::{
-        DataType, Enum, Field, Fields, NamedDataType, Primitive, Reference, Struct, Tuple,
-        UnnamedFields, Variant,
+        ConstantValue, DataType, Enum, Field, Fields, NamedDataType, Primitive, Reference, Struct,
+        Tuple, UnnamedFields, Variant,
     },
 };
 
@@ -523,7 +523,8 @@ fn select_phase_datatype_inner(ty: &mut DataType, types: &Types, phase: Phase) {
         }
         DataType::Reference(Reference::Generic(_))
         | DataType::Reference(Reference::Opaque(_))
-        | DataType::Primitive(_) => {}
+        | DataType::Primitive(_)
+        | DataType::Constant(_) => {}
     }
 }
 
@@ -774,7 +775,8 @@ fn rewrite_datatype_for_phase(
         }
         DataType::Reference(Reference::Generic(_))
         | DataType::Reference(Reference::Opaque(_))
-        | DataType::Primitive(_) => {}
+        | DataType::Primitive(_)
+        | DataType::Constant(_) => {}
     }
 
     Ok(())
@@ -1044,8 +1046,7 @@ fn rewrite_enum_repr_for_phase(
     }
 
     *e.variants_mut() = transformed;
-    e.attributes_mut()
-        .insert("specta:serde_repr", true);
+    e.attributes_mut().insert("specta:serde_repr", true);
 
     Ok(())
 }
@@ -1558,11 +1559,7 @@ fn transform_internal_variant(
 }
 
 fn string_literal_datatype(value: String) -> DataType {
-    let mut value_enum = Enum::new();
-    value_enum
-        .variants_mut()
-        .push((Cow::Owned(value), Variant::unit()));
-    DataType::Enum(value_enum)
+    DataType::Constant(ConstantValue::from(value))
 }
 
 fn variant_has_effective_payload(variant: &Variant) -> bool {
@@ -1725,6 +1722,7 @@ fn internal_tag_payload_compatibility(
             Err(_) => Ok(None),
         },
         DataType::Primitive(_)
+        | DataType::Constant(_)
         | DataType::List(_)
         | DataType::Nullable(_)
         | DataType::Reference(Reference::Generic(_))
@@ -1791,6 +1789,7 @@ fn has_local_phase_difference(dt: &DataType) -> Result<bool> {
             Ok(reference.downcast_ref::<PhasedTy>().is_some())
         }
         DataType::Primitive(_)
+        | DataType::Constant(_)
         | DataType::Reference(Reference::Named(_))
         | DataType::Reference(Reference::Generic(_)) => Ok(false),
     }
@@ -1915,7 +1914,9 @@ fn collect_dependencies(
                 collect_dependencies(&phased.deserialize, types, deps)?;
             }
         }
-        DataType::Primitive(_) | DataType::Reference(Reference::Generic(_)) => {}
+        DataType::Primitive(_)
+        | DataType::Constant(_)
+        | DataType::Reference(Reference::Generic(_)) => {}
     }
 
     Ok(())

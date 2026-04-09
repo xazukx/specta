@@ -44,6 +44,8 @@ pub fn datatype_to_schema(
     match dt {
         DataType::Primitive(p) => Ok(primitive_to_schema(p)),
 
+        DataType::Constant(c) => Ok(constant_to_schema(c)),
+
         DataType::Nullable(inner) => {
             let inner_schema = datatype_to_schema(js, types, inner, false)?;
             Ok(json!({
@@ -159,7 +161,7 @@ fn resolve_generics(dt: &DataType, generics: &[(GenericReference, DataType)]) ->
         visiting: &mut Vec<GenericReference>,
     ) -> DataType {
         match dt {
-            DataType::Primitive(_) => dt.clone(),
+            DataType::Primitive(_) | DataType::Constant(_) => dt.clone(),
             DataType::List(l) => {
                 let mut out = l.clone();
                 out.set_ty(resolve(l.ty(), generics, visiting));
@@ -287,6 +289,17 @@ fn compute_relative_ref(current_module: &str, ref_module: &str, type_name: &str)
     }
 
     format!("{}{}.schema.json", path, type_name)
+}
+
+fn constant_to_schema(c: &ConstantValue) -> Value {
+    match c {
+        ConstantValue::String(v) => json!({"const": v.as_ref()}),
+        ConstantValue::Integer(n) => json!({"const": n}),
+        ConstantValue::UnsignedInteger(n) => json!({"const": n}),
+        ConstantValue::Float(bits) => json!({"const": bits.to_f64()}),
+        ConstantValue::Bool(b) => json!({"const": b}),
+        ConstantValue::Bytes(_) | ConstantValue::Null => json!({"const": null}),
+    }
 }
 
 fn primitive_to_schema(p: &Primitive) -> Value {

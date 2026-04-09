@@ -35,7 +35,9 @@ use std::{borrow::Cow, sync::Arc};
 
 use specta::{
     ResolvedTypes, Types,
-    datatype::{DataType, Fields, GenericReference, NamedReference, Primitive, Reference},
+    datatype::{
+        ConstantValue, DataType, Fields, GenericReference, NamedReference, Primitive, Reference,
+    },
 };
 
 // TODO: Allow configuring custom named types via NDT name and module path using config params.
@@ -217,7 +219,7 @@ impl Analyzer {
             | DataType::Primitive(Primitive::u64)
             | DataType::Primitive(Primitive::i128)
             | DataType::Primitive(Primitive::u128) => PlanNode::Leaf(Tag::BigInt),
-            DataType::Primitive(_) => PlanNode::Identity,
+            DataType::Primitive(_) | DataType::Constant(_) => PlanNode::Identity,
             DataType::List(list) => {
                 let inner = self.analyze(list.ty(), types, generics, stack);
                 if inner.is_identity() {
@@ -536,6 +538,10 @@ fn js_string(value: &str) -> String {
 }
 
 fn string_literal(ty: &DataType) -> Option<String> {
+    if let DataType::Constant(ConstantValue::String(s)) = ty {
+        return Some(s.to_string());
+    }
+
     let DataType::Enum(enm) = ty else {
         return None;
     };

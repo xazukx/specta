@@ -818,7 +818,7 @@ fn collect_type_deps(
     visited_inline: &mut HashSet<*const NamedDataType>,
 ) {
     match dt {
-        DataType::Primitive(_) => {}
+        DataType::Primitive(_) | DataType::Constant(_) => {}
         DataType::List(l) => collect_type_deps(l.ty(), types, ptr_to_index, deps, visited_inline),
         DataType::Map(m) => {
             collect_type_deps(m.key_ty(), types, ptr_to_index, deps, visited_inline);

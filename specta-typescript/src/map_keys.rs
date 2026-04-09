@@ -165,10 +165,10 @@ fn validate_map_key_inner(
             path,
             "tuple keys are not supported by serde_json map key serialization",
         )),
-        DataType::List(_) | DataType::Map(_) | DataType::Nullable(_) => {
+        DataType::List(_) | DataType::Map(_) | DataType::Nullable(_) | DataType::Constant(_) => {
             Err(Error::invalid_map_key(
                 path,
-                "collection, map, and nullable keys are not supported by serde_json map key serialization",
+                "collection, map, nullable, and constant keys are not supported by serde_json map key serialization",
             ))
         }
     }
@@ -236,7 +236,7 @@ fn resolve_generics_in_datatype(
         visiting: &mut Vec<GenericReference>,
     ) -> DataType {
         match dt {
-            DataType::Primitive(_) => dt.clone(),
+            DataType::Primitive(_) | DataType::Constant(_) => dt.clone(),
             DataType::List(list) => {
                 let mut out = list.clone();
                 out.set_ty(resolve(list.ty(), generics, visiting));

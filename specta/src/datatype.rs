@@ -49,4 +49,10 @@ pub enum DataType {
     Nullable(Box<DataType>),
     /// A reference to another named or opaque type.
     Reference(Reference),
+    /// A compile-time constant value used as a type (e.g. a string literal type).
+    ///
+    /// This will typically not be constructed directly in most languages and exists
+    /// for outputting tagged enums in languages like TypeScript that accept constant
+    /// values as types (e.g. `"variant_name"` as a type).
+    Constant(ConstantValue),
 }

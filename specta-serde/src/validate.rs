@@ -358,7 +358,7 @@ fn inner(
                 }
             }
         },
-        DataType::Primitive(_) => {}
+        DataType::Primitive(_) | DataType::Constant(_) => {}
     }
 
     Ok(())
@@ -724,6 +724,7 @@ fn validate_internally_tag_enum_datatype(
         | DataType::Reference(Reference::Opaque(_))
         | DataType::Tuple(_)
         | DataType::Primitive(_)
+        | DataType::Constant(_)
         | DataType::List(_)
         | DataType::Nullable(_) => Err(Error::invalid_internally_tagged_enum(
             path,

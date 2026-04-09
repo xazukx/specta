@@ -8,7 +8,7 @@
           "type": "object",
           "properties": {
             "t": {
-              "const": "UnitVariant"
+              "const": "unit_variant"
             }
           },
           "required": [
@@ -19,7 +19,7 @@
           "type": "object",
           "properties": {
             "t": {
-              "const": "WithData"
+              "const": "with_data"
             },
             "c": {
               "type": "string"
@@ -34,7 +34,7 @@
           "type": "object",
           "properties": {
             "t": {
-              "const": "WithStruct"
+              "const": "with_struct"
             },
             "c": {
               "type": "object",
@@ -129,7 +129,10 @@
     },
     "Permission": {
       "title": "Permission",
-      "const": "read_all"
+      "enum": [
+        "read_all",
+        "write_all"
+      ]
     },
     "Role": {
       "title": "Role",

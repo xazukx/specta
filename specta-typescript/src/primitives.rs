@@ -8,8 +8,8 @@ use std::{borrow::Cow, cell::RefCell, fmt::Write as _, iter};
 use specta::{
     ResolvedTypes, Types,
     datatype::{
-        DataType, Deprecated, Enum, Fields, GenericReference, List, Map, NamedDataType,
-        NamedReference, OpaqueReference, Primitive, Reference, Tuple, Variant,
+        ConstantValue, DataType, Deprecated, Enum, Fields, GenericReference, List, Map,
+        NamedDataType, NamedReference, OpaqueReference, Primitive, Reference, Tuple, Variant,
     },
 };
 
@@ -622,6 +622,7 @@ fn shallow_inline_datatype(
 ) -> Result<(), Error> {
     match dt {
         DataType::Primitive(p) => s.push_str(primitive_dt(p, location)?),
+        DataType::Constant(c) => constant_type_dt(s, c),
         DataType::List(list) => {
             let mut inner = String::new();
             shallow_inline_datatype(
@@ -861,7 +862,7 @@ fn resolve_generics_in_datatype(
         visiting: &mut Vec<GenericReference>,
     ) -> DataType {
         match dt {
-            DataType::Primitive(_) => dt.clone(),
+            DataType::Primitive(_) | DataType::Constant(_) => dt.clone(),
             DataType::List(l) => {
                 let mut out = l.clone();
                 out.set_ty(resolve(l.ty(), generics, visiting));
@@ -975,6 +976,7 @@ fn inline_datatype(
 
     match dt {
         DataType::Primitive(p) => s.push_str(primitive_dt(p, location)?),
+        DataType::Constant(c) => constant_type_dt(s, c),
         DataType::List(l) => {
             // Inline the list element type
             let mut dt_str = String::new();
@@ -1145,6 +1147,7 @@ pub(crate) fn datatype(
 
     match dt {
         DataType::Primitive(p) => s.push_str(primitive_dt(p, location)?),
+        DataType::Constant(c) => constant_type_dt(s, c),
         DataType::List(l) => list_dt(s, exporter, types, l, location, generics)?,
         DataType::Map(m) => map_dt(s, exporter, types, m, location, generics)?,
         DataType::Nullable(def) => {
@@ -1195,6 +1198,28 @@ pub(crate) fn datatype(
     };
 
     Ok(())
+}
+
+fn constant_type_dt(s: &mut String, value: &ConstantValue) {
+    match value {
+        ConstantValue::String(v) => {
+            write!(s, "\"{}\"", escape_typescript_string_literal(v)).unwrap();
+        }
+        ConstantValue::Integer(n) => write!(s, "{n}").unwrap(),
+        ConstantValue::UnsignedInteger(n) => write!(s, "{n}").unwrap(),
+        ConstantValue::Float(bits) => {
+            let v = bits.to_f64();
+            if v.is_nan() {
+                s.push_str("number");
+            } else if v.is_infinite() {
+                s.push_str("number");
+            } else {
+                write!(s, "{v}").unwrap();
+            }
+        }
+        ConstantValue::Bool(b) => s.push_str(if *b { "true" } else { "false" }),
+        ConstantValue::Bytes(_) | ConstantValue::Null => s.push_str("null"),
+    }
 }
 
 fn primitive_dt(p: &Primitive, location: Vec<Cow<'static, str>>) -> Result<&'static str, Error> {

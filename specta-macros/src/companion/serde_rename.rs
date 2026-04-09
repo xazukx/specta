@@ -157,4 +157,3 @@ pub fn to_pascal_case(s: &str) -> String {
     // This handles: camelCase, kebab-case, SCREAMING_SNAKE_CASE, etc.
     s.to_pascal_case()
 }
-

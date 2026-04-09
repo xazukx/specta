@@ -3,12 +3,12 @@ import { z } from "zod";
 
 import * as ex_shared from "./ex_shared";
 export const AdjacentlyTaggedSchema = z.union([z.object({
-	t: z.literal("UnitVariant"),
+	t: z.literal("unit_variant"),
 }), z.object({
-	t: z.literal("WithData"),
+	t: z.literal("with_data"),
 	c: z.string(),
 }), z.object({
-	t: z.literal("WithStruct"),
+	t: z.literal("with_struct"),
 	c: z.object({
 	x: z.int(),
 	y: z.int(),
