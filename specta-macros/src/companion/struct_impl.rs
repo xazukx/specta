@@ -3,8 +3,8 @@ use quote::{format_ident, quote};
 use syn::{DataStruct, Fields, GenericParam, Generics, Ident, Visibility};
 
 use super::attr::{CompanionContainerAttr, CompanionFieldAttr};
-use super::serde_rename::{
-    SerdeContainerRename, parse_serde_item_rename, resolve_serialized_name, to_pascal_case,
+use crate::serde_parse::{
+    ContainerAttrs, parse_field_attrs, resolve_serialized_name, to_pascal_case,
 };
 use crate::utils::{parse_attrs, unraw_raw_ident};
 
@@ -42,7 +42,7 @@ pub fn generate_struct_companion(
     generics: &Generics,
     data: &DataStruct,
     container_attr: &CompanionContainerAttr,
-    serde_container: &SerdeContainerRename,
+    serde_container: &ContainerAttrs,
     crate_ref: &TokenStream,
 ) -> syn::Result<TokenStream> {
     let fields = match &data.fields {
@@ -68,14 +68,18 @@ pub fn generate_struct_companion(
         let field_ident = field.ident.as_ref().unwrap();
         let mut attrs = parse_attrs(&field.attrs)?;
         let companion_attr = CompanionFieldAttr::from_attrs(&mut attrs)?;
-        let serde_item = parse_serde_item_rename(&field.attrs)?;
+        let serde_field = parse_field_attrs(&field.attrs)?.unwrap_or_default();
 
-        if companion_attr.skip || serde_item.skip {
+        if companion_attr.skip || serde_field.skip_serializing || serde_field.skip_deserializing {
             continue;
         }
 
         let rust_name = unraw_raw_ident(field_ident);
-        let serialized_name = resolve_serialized_name(&rust_name, &serde_item, serde_container);
+        let serialized_name = resolve_serialized_name(
+            &rust_name,
+            serde_field.rename_serialize.as_deref(),
+            serde_container.rename_all_serialize,
+        );
         let variant_str = to_pascal_case(&serialized_name);
         let variant_name = format_ident!("{}", variant_str, span = field_ident.span());
         field_infos.push(FieldInfo {

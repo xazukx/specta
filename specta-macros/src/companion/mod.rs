@@ -1,16 +1,15 @@
 mod attr;
 mod enum_impl;
-mod serde_rename;
 mod struct_impl;
 
 use quote::quote;
 use syn::{Data, DeriveInput, parse};
 
+use crate::serde_parse::parse_container_attrs;
 use crate::utils::parse_attrs;
 
 use self::attr::CompanionContainerAttr;
 use self::enum_impl::generate_enum_companion;
-use self::serde_rename::parse_serde_container_rename;
 use self::struct_impl::generate_struct_companion;
 
 pub fn derive(input: proc_macro::TokenStream) -> syn::Result<proc_macro::TokenStream> {
@@ -26,7 +25,7 @@ pub fn derive(input: proc_macro::TokenStream) -> syn::Result<proc_macro::TokenSt
     let mut attrs = parse_attrs(raw_attrs)?;
 
     let container_attr = CompanionContainerAttr::from_attrs(&mut attrs)?;
-    let serde_container = parse_serde_container_rename(raw_attrs)?;
+    let serde_container = parse_container_attrs(raw_attrs)?.unwrap_or_default();
 
     let crate_ref = quote!(specta);
 

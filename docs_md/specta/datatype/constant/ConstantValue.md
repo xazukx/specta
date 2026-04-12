@@ -24,3 +24,16 @@ pub enum ConstantValue {
 	Null,
 }
 ```
+
+## Methods
+
+```rust
+/**
+`to_primitive` -- Returns the [`Primitive`] type that corresponds to this constant value.
+
+This is useful for language exporters that do not support constant/literal
+types and need to fall back to the underlying primitive type.
+*/
+pub fn to_primitive(self: &Self) -> Primitive
+```
+

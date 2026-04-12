@@ -14,6 +14,7 @@ struct UserProfile {
     username: String,
     #[companion(skip)]
     password_hash: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
     display_name: Option<String>,
 }
 

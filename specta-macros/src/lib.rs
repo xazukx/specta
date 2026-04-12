@@ -11,6 +11,7 @@
 #[cfg(feature = "companion")]
 mod companion;
 mod constant;
+mod serde_parse;
 #[cfg(feature = "DO_NOT_USE_function")]
 mod specta;
 mod r#type;

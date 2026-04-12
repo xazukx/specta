@@ -30,5 +30,12 @@ pub enum DataType {
 	/// A reference to another named or opaque type.
 	/// [Reference](./reference/Reference.md)
 	Reference(Reference),
+	/// A compile-time constant value used as a type (e.g. a string literal type).
+	/// 
+	/// This will typically not be constructed directly in most languages and exists
+	/// for outputting tagged enums in languages like TypeScript that accept constant
+	/// values as types (e.g. `"variant_name"` as a type).
+	/// [ConstantValue](./constant/ConstantValue.md)
+	Constant(ConstantValue),
 }
 ```
