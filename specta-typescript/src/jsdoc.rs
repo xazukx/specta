@@ -48,6 +48,12 @@ impl JSDoc {
         Self(self.0.layout(layout))
     }
 
+    /// Export bigint types (`i64`, `u64`, `i128`, `u128`, `isize`, `usize`, `f128`) as `number`
+    /// instead of returning an error.
+    pub fn always_use_number(self, enable: bool) -> Self {
+        Self(self.0.always_use_number(enable))
+    }
+
     /// Configure how `specta_typescript::branded!` types are rendered.
     ///
     /// See [`Exporter::branded_type_impl`] for details.

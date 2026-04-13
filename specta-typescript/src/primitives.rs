@@ -621,7 +621,7 @@ fn shallow_inline_datatype(
     generics: &[(GenericReference, DataType)],
 ) -> Result<(), Error> {
     match dt {
-        DataType::Primitive(p) => s.push_str(primitive_dt(p, location)?),
+        DataType::Primitive(p) => s.push_str(primitive_dt(p, exporter, location)?),
         DataType::Constant(c) => constant_type_dt(s, c),
         DataType::List(list) => {
             let mut inner = String::new();
@@ -975,7 +975,7 @@ fn inline_datatype(
     }
 
     match dt {
-        DataType::Primitive(p) => s.push_str(primitive_dt(p, location)?),
+        DataType::Primitive(p) => s.push_str(primitive_dt(p, exporter, location)?),
         DataType::Constant(c) => constant_type_dt(s, c),
         DataType::List(l) => {
             // Inline the list element type
@@ -1146,7 +1146,7 @@ pub(crate) fn datatype(
     // TODO: Validating the variant from `dt` can be flattened
 
     match dt {
-        DataType::Primitive(p) => s.push_str(primitive_dt(p, location)?),
+        DataType::Primitive(p) => s.push_str(primitive_dt(p, exporter, location)?),
         DataType::Constant(c) => constant_type_dt(s, c),
         DataType::List(l) => list_dt(s, exporter, types, l, location, generics)?,
         DataType::Map(m) => map_dt(s, exporter, types, m, location, generics)?,
@@ -1222,13 +1222,21 @@ fn constant_type_dt(s: &mut String, value: &ConstantValue) {
     }
 }
 
-fn primitive_dt(p: &Primitive, location: Vec<Cow<'static, str>>) -> Result<&'static str, Error> {
+fn primitive_dt(
+    p: &Primitive,
+    exporter: &Exporter,
+    location: Vec<Cow<'static, str>>,
+) -> Result<&'static str, Error> {
     use Primitive::*;
 
     Ok(match p {
         i8 | i16 | i32 | u8 | u16 | u32 | f16 | f32 | f64 /* this looks wrong but `f64` is the direct equivalent of `number` */ => "number",
         usize | isize | i64 | u64 | i128 | u128 | f128 => {
-            return Err(Error::bigint_forbidden(location.join(".")));
+            if exporter.always_use_number {
+                "number"
+            } else {
+                return Err(Error::bigint_forbidden(location.join(".")));
+            }
         }
         Primitive::bool => "boolean",
         str | char => "string",

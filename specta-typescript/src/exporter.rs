@@ -74,6 +74,9 @@ pub struct Exporter {
     /// Output layout mode for generated TypeScript.
     pub layout: Layout,
     pub(crate) jsdoc: bool,
+    /// When `true`, bigint types (`i64`, `u64`, `i128`, `u128`, `isize`, `usize`, `f128`)
+    /// are exported as `number` instead of returning an error.
+    pub(crate) always_use_number: bool,
 }
 
 impl Exporter {
@@ -88,6 +91,7 @@ impl Exporter {
             ),
             layout: Default::default(),
             jsdoc: false,
+            always_use_number: false,
         }
     }
 
@@ -171,6 +175,13 @@ impl Exporter {
     /// Configure the bindings layout
     pub fn layout(mut self, layout: Layout) -> Self {
         self.layout = layout;
+        self
+    }
+
+    /// Export bigint types (`i64`, `u64`, `i128`, `u128`, `isize`, `usize`, `f128`) as `number`
+    /// instead of returning an error.
+    pub fn always_use_number(mut self, enable: bool) -> Self {
+        self.always_use_number = enable;
         self
     }
 
