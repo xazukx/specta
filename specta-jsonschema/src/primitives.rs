@@ -109,8 +109,17 @@ pub fn datatype_to_schema(
                     {
                         let ref_module =
                             referenced_ndt.module_path().to_string().replace("::", "/");
+                        let folder_grouping = match &js.layout {
+                            specta::export::Layout::MultiFile(config) => &config.folder_grouping,
+                            _ => &specta::export::FolderGrouping::None,
+                        };
                         CURRENT_MODULE.with(|cm| {
-                            compute_relative_ref(&cm.borrow(), &ref_module, &referenced_ndt.name())
+                            compute_relative_ref(
+                                &cm.borrow(),
+                                &ref_module,
+                                &referenced_ndt.name(),
+                                folder_grouping,
+                            )
                         })
                     } else {
                         js.build_ref(&referenced_ndt.name())
@@ -252,38 +261,56 @@ fn resolve_generics(dt: &DataType, generics: &[(GenericReference, DataType)]) ->
     resolve(dt, generics, &mut Vec::new())
 }
 
+/// Compute the actual file directory for a module path based on FolderGrouping.
+/// The module path uses `/` separators (already converted from `::`).
+fn module_file_dir(module_path: &str, folder_grouping: &specta::export::FolderGrouping) -> Vec<String> {
+    if module_path.is_empty() {
+        return vec![];
+    }
+    let parts: Vec<&str> = module_path.split('/').collect();
+    match folder_grouping {
+        specta::export::FolderGrouping::None => parts.into_iter().map(|s| s.to_string()).collect(),
+        specta::export::FolderGrouping::ByDepth(depth) => {
+            if parts.len() <= *depth {
+                parts.into_iter().map(|s| s.to_string()).collect()
+            } else {
+                parts[..*depth].iter().map(|s| s.to_string()).collect()
+            }
+        }
+    }
+}
+
 /// Compute a relative `$ref` path from the current module to a referenced type's module.
-fn compute_relative_ref(current_module: &str, ref_module: &str, type_name: &str) -> String {
-    if current_module == ref_module {
+/// Accounts for FolderGrouping which may move files to different directories.
+fn compute_relative_ref(
+    current_module: &str,
+    ref_module: &str,
+    type_name: &str,
+    folder_grouping: &specta::export::FolderGrouping,
+) -> String {
+    // Compute actual file directories based on FolderGrouping
+    let current_dir = module_file_dir(current_module, folder_grouping);
+    let ref_dir = module_file_dir(ref_module, folder_grouping);
+
+    if current_dir == ref_dir {
         return format!("./{}.schema.json", type_name);
     }
 
-    let current_parts: Vec<&str> = if current_module.is_empty() {
-        vec![]
-    } else {
-        current_module.split('/').collect()
-    };
-    let ref_parts: Vec<&str> = if ref_module.is_empty() {
-        vec![]
-    } else {
-        ref_module.split('/').collect()
-    };
-
     // Find common prefix length
-    let common = current_parts
+    let common = current_dir
         .iter()
-        .zip(ref_parts.iter())
+        .zip(ref_dir.iter())
         .take_while(|(a, b)| a == b)
         .count();
 
     let mut path = String::new();
-    // Navigate up from current module to common ancestor
-    let ups = current_parts.len() - common;
+    // Navigate up from current directory to common ancestor
+    let ups = current_dir.len() - common;
     for _ in 0..ups {
         path.push_str("../");
     }
-    // Navigate down to referenced module
-    for part in &ref_parts[common..] {
+    // Navigate down to referenced directory
+    for part in &ref_dir[common..] {
         path.push_str(part);
         path.push('/');
     }

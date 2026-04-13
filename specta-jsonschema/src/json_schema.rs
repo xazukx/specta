@@ -3,7 +3,7 @@ use serde_json::Value;
 use specta::{
     ResolvedTypes, Types,
     datatype::NamedDataType,
-    export::{ExportLanguage, ImportInfo, Layout, ModuleRenderResult, PathResolver},
+    export::{ExportLanguage, FolderGrouping, ImportInfo, Layout, ModuleRenderResult, PathResolver},
 };
 use std::borrow::Cow;
 use std::collections::{BTreeMap, HashMap};
@@ -222,54 +222,70 @@ impl JsonSchema {
     fn export_files(&self, base_path: &Path, types: &Types) -> Result<(), Error> {
         std::fs::create_dir_all(base_path)?;
 
-        let mut by_module: BTreeMap<String, Vec<NamedDataType>> = BTreeMap::new();
+        let folder_grouping = match &self.layout {
+            Layout::MultiFile(config) => &config.folder_grouping,
+            _ => &FolderGrouping::None,
+        };
 
         for ndt in types
             .into_sorted_iter()
             .filter(|ndt| ndt.requires_reference(types))
         {
-            let module = ndt.module_path().to_string().replace("::", "/");
-            by_module.entry(module).or_default().push(ndt.clone());
-        }
+            let schema = primitives::export(self, types, &ndt)?;
+            let module_path_str = ndt.module_path().to_string();
 
-        for (module, ndts) in by_module {
-            let module_dir = if module.is_empty() {
+            // Compute directory based on FolderGrouping
+            let module_dir = if module_path_str.is_empty() {
                 base_path.to_path_buf()
             } else {
-                base_path.join(&module)
+                match folder_grouping {
+                    FolderGrouping::None => {
+                        base_path.join(module_path_str.replace("::", "/"))
+                    }
+                    FolderGrouping::ByDepth(depth) => {
+                        let segments: Vec<&str> = module_path_str.split("::").collect();
+                        let folder_segments = if segments.len() <= *depth {
+                            &segments[..]
+                        } else {
+                            &segments[..*depth]
+                        };
+                        if folder_segments.is_empty() {
+                            base_path.to_path_buf()
+                        } else {
+                            base_path.join(folder_segments.join("/"))
+                        }
+                    }
+                }
             };
 
             std::fs::create_dir_all(&module_dir)?;
 
-            for ndt in &ndts {
-                let schema = primitives::export(self, types, ndt)?;
-                let filename = format!("{}.schema.json", ndt.name());
-                let file_path = module_dir.join(&filename);
+            let filename = format!("{}.schema.json", ndt.name());
+            let file_path = module_dir.join(&filename);
 
-                let mut root = serde_json::json!({
-                    "$schema": self.schema_version.uri(),
-                });
+            let mut root = serde_json::json!({
+                "$schema": self.schema_version.uri(),
+            });
 
-                let root_obj = root.as_object_mut().unwrap();
+            let root_obj = root.as_object_mut().unwrap();
 
-                // Add $id for each file
-                if let Some(base) = &self.base_uri {
-                    let base = base.trim_end_matches('/');
-                    root_obj.insert(
-                        "$id".to_string(),
-                        Value::String(format!("{}/{}", base, filename)),
-                    );
-                }
-
-                // Merge in the type's schema properties
-                if let Some(obj) = schema.as_object() {
-                    for (k, v) in obj {
-                        root_obj.insert(k.clone(), v.clone());
-                    }
-                }
-
-                std::fs::write(file_path, serde_json::to_string_pretty(&root)?)?;
+            // Add $id for each file
+            if let Some(base) = &self.base_uri {
+                let base = base.trim_end_matches('/');
+                root_obj.insert(
+                    "$id".to_string(),
+                    Value::String(format!("{}/{}", base, filename)),
+                );
             }
+
+            // Merge in the type's schema properties
+            if let Some(obj) = schema.as_object() {
+                for (k, v) in obj {
+                    root_obj.insert(k.clone(), v.clone());
+                }
+            }
+
+            std::fs::write(file_path, serde_json::to_string_pretty(&root)?)?;
         }
 
         Ok(())

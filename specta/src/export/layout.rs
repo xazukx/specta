@@ -103,13 +103,7 @@ pub enum IndexFileConfig {
 
     /// Generate an index file in each folder that re-exports
     /// everything from that folder's files.
-    ReExportAll {
-        /// If true, re-exports use the module path prefix:
-        /// `export { User as shared_User } from "./item";`
-        /// If false, re-exports are flat:
-        /// `export { User } from "./item";`
-        use_module_prefix: bool,
-    },
+    ReExportAll,
 }
 
 /// Controls how cross-module imports are structured.

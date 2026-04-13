@@ -862,13 +862,18 @@ fn reference_named_dt(
             name.push_str("Schema");
             name
         }
-        Layout::MultiFile(_) => {
+        Layout::MultiFile(config) => {
             let current_module_path = crate::references::current_module_path().unwrap_or_default();
             let base = format!("{}Schema", ndt.name());
             if ndt.module_path() == &current_module_path {
                 base
             } else {
-                format!("{}.{}", crate::zod::module_alias(ndt.module_path()), base)
+                match config.import_style {
+                    specta::export::ImportStyle::Named => base,
+                    specta::export::ImportStyle::Namespace => {
+                        format!("{}.{}", crate::zod::module_alias(ndt.module_path()), base)
+                    }
+                }
             }
         }
         _ => format!("{}Schema", ndt.name()),

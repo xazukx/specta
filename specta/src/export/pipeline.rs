@@ -6,8 +6,7 @@ use std::{
 use crate::{Constants, NamedConstant, ResolvedTypes, Types};
 
 use super::{
-    ExportLanguage, ImportInfo,
-    filesystem,
+    ExportLanguage, ImportInfo, filesystem,
     layout::{IndexFileConfig, Layout},
     module_graph::{Module, build_module_graph},
     path_resolver::PathResolver,
@@ -95,7 +94,8 @@ impl ExportPipeline {
                     }
 
                     if !root_constants.is_empty() {
-                        let const_refs: Vec<&NamedConstant> = root_constants.iter().copied().collect();
+                        let const_refs: Vec<&NamedConstant> =
+                            root_constants.iter().copied().collect();
                         let rendered = lang.render_constants(&const_refs)?;
                         if !rendered.is_empty() {
                             out.push('\n');
@@ -107,7 +107,7 @@ impl ExportPipeline {
                 }
 
                 // Generate index files if configured
-                if let IndexFileConfig::ReExportAll { .. } = &config.index_files {
+                if let IndexFileConfig::ReExportAll = &config.index_files {
                     if lang.index_file_stem().is_some() {
                         Self::generate_index_files(
                             lang,
@@ -137,19 +137,17 @@ impl ExportPipeline {
 
                 // Write all files
                 for (file_path, content) in &files {
-                    file_path.parent().map(std::fs::create_dir_all).transpose()?;
+                    file_path
+                        .parent()
+                        .map(std::fs::create_dir_all)
+                        .transpose()?;
                     std::fs::write(file_path, content)?;
                 }
 
                 // Clean up stale files
                 let extensions = lang.stale_file_extensions();
                 let ext_refs: Vec<&str> = extensions.iter().map(|s| *s).collect();
-                filesystem::cleanup_stale_files(
-                    path,
-                    &files,
-                    &ext_refs,
-                    lang.generated_marker(),
-                )?;
+                filesystem::cleanup_stale_files(path, &files, &ext_refs, lang.generated_marker())?;
 
                 Ok(())
             }
@@ -212,13 +210,16 @@ impl ExportPipeline {
     }
 
     /// Recursively export a module and its children.
+    ///
+    /// `root_path` is always the top-level output directory (not recursively built up).
+    /// File placement is determined by PathResolver, which respects FolderGrouping.
     fn export_module<L: ExportLanguage>(
         lang: &L,
         types: &Types,
         module: &mut Module<'_>,
         s: &mut String,
         root_exports: &mut HashMap<String, std::panic::Location<'static>>,
-        path: &Path,
+        root_path: &Path,
         files: &mut HashMap<PathBuf, String>,
         file_info: &mut HashMap<PathBuf, FileExportInfo>,
         path_resolver: &PathResolver,
@@ -249,11 +250,8 @@ impl ExportPipeline {
             .collect();
 
         if !import_paths.is_empty() {
-            let import_block = lang.render_imports(
-                module.module_path.as_ref(),
-                &import_paths,
-                path_resolver,
-            )?;
+            let import_block =
+                lang.render_imports(module.module_path.as_ref(), &import_paths, path_resolver)?;
             if !import_block.is_empty() {
                 s.push('\n');
                 s.push_str(&import_block);
@@ -283,7 +281,7 @@ impl ExportPipeline {
         root_exports.extend(exports.clone());
 
         // Process child modules
-        for (name, child_module) in &mut module.children {
+        for (_name, child_module) in &mut module.children {
             if child_module.types.is_empty()
                 && child_module.constants.is_empty()
                 && child_module.children.is_empty()
@@ -291,7 +289,6 @@ impl ExportPipeline {
                 continue;
             }
 
-            let mut child_path = path.join(name);
             let mut out = lang.render_file_header();
             let mut child_exports = HashMap::new();
 
@@ -301,14 +298,22 @@ impl ExportPipeline {
                 child_module,
                 &mut out,
                 &mut child_exports,
-                &child_path,
+                root_path,
                 files,
                 file_info,
                 path_resolver,
             )?;
 
             if has_types {
-                child_path.set_extension(lang.file_extension());
+                // Use PathResolver for correct file placement (respects FolderGrouping)
+                let child_path = path_resolver
+                    .module_file_path(child_module.module_path.as_ref())
+                    .map(|rel| root_path.join(rel))
+                    .unwrap_or_else(|| {
+                        let mut p = root_path.join(child_module.module_path.replace("::", "/"));
+                        p.set_extension(lang.file_extension());
+                        p
+                    });
 
                 let export_names: Vec<String> = child_exports.keys().cloned().collect();
                 file_info.insert(
@@ -340,7 +345,9 @@ impl ExportPipeline {
         let mut dirs: BTreeMap<PathBuf, Vec<(&PathBuf, &FileExportInfo)>> = BTreeMap::new();
         for (path, info) in file_info {
             if let Some(parent) = path.parent() {
-                dirs.entry(parent.to_path_buf()).or_default().push((path, info));
+                dirs.entry(parent.to_path_buf())
+                    .or_default()
+                    .push((path, info));
             }
         }
 
@@ -355,6 +362,7 @@ impl ExportPipeline {
                 .filter_map(|(path, info)| {
                     path.file_stem()
                         .and_then(|s| s.to_str())
+                        .filter(|stem| *stem != index_stem)
                         .map(|stem| IndexFileEntry {
                             file_stem: stem,
                             exported_names: &info.exported_names,
@@ -366,9 +374,7 @@ impl ExportPipeline {
             // Find subdirectories that have their own index files
             let subdirs: Vec<&str> = dirs
                 .keys()
-                .filter(|other_dir| {
-                    other_dir.parent() == Some(dir) && *other_dir != dir
-                })
+                .filter(|other_dir| other_dir.parent() == Some(dir) && *other_dir != dir)
                 .filter_map(|d| d.file_name().and_then(|n| n.to_str()))
                 .collect();
 
@@ -376,21 +382,25 @@ impl ExportPipeline {
                 let mut index_path = dir.join(index_stem);
                 index_path.set_extension(lang.file_extension());
 
-                // Don't overwrite the root index if it already has content
-                if files.contains_key(&index_path) {
+                let rendered = lang.render_index_file(&entries, &subdirs, path_resolver)?;
+                if rendered.is_empty() {
                     continue;
                 }
 
-                let mut out = lang.render_file_header();
-                let rendered = lang.render_index_file(&entries, &subdirs, path_resolver)?;
-                if !rendered.is_empty() {
+                // Append re-exports to existing index file, or create a new one
+                if let Some(existing) = files.get_mut(&index_path) {
+                    if !existing.is_empty() {
+                        existing.push('\n');
+                    }
+                    existing.push_str(&rendered);
+                } else {
+                    let mut out = lang.render_file_header();
                     if !out.is_empty() {
                         out.push('\n');
                     }
                     out.push_str(&rendered);
+                    files.insert(index_path, out);
                 }
-
-                files.insert(index_path, out);
             }
         }
 

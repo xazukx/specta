@@ -255,13 +255,25 @@ impl Exporter {
             return Ok(());
         }
 
+        // Build PathResolver for correct file placement and import path resolution
+        let path_resolver = export::PathResolver::new(
+            self.file_extension(),
+            self.index_file_stem(),
+            &self.layout,
+            types,
+            resolved_types.constants(),
+        );
+
         fn export_module(
             exporter: &Exporter,
             types: &Types,
             module: &mut Module,
             s: &mut String,
-            path: &Path,
+            all_exports: &mut HashMap<String, Location<'static>>,
+            root_path: &Path,
             files: &mut HashMap<PathBuf, String>,
+            file_info: &mut HashMap<PathBuf, FileExportInfo>,
+            path_resolver: &PathResolver,
         ) -> Result<bool, Error> {
             module.types.sort_by(|a, b| {
                 a.name()
@@ -285,7 +297,8 @@ impl Exporter {
                 });
             let (rendered_types, exports) = rendered_types_result?;
 
-            let import_paths = referenced_types
+            // Build ImportInfo map with type names (needed for Named import style)
+            let import_info: BTreeMap<String, ImportInfo> = referenced_types
                 .into_iter()
                 .filter_map(|r| {
                     r.get(types).map(|ndt| {
@@ -293,25 +306,32 @@ impl Exporter {
                             ndt.ty(),
                             DataType::Enum(e) if crate::legacy::is_native_ts_enum(e)
                         );
-                        (ndt.module_path().as_ref().to_string(), is_value)
+                        (
+                            ndt.module_path().as_ref().to_string(),
+                            ndt.name().to_string(),
+                            is_value,
+                        )
                     })
                 })
-                .filter(|(module_path, _)| module_path != module.module_path.as_ref())
-                .fold(BTreeMap::new(), |mut acc, (path, is_value)| {
-                    let entry = acc.entry(path).or_insert(false);
-                    *entry = *entry || is_value;
+                .filter(|(module_path, _, _)| module_path != module.module_path.as_ref())
+                .fold(BTreeMap::new(), |mut acc, (path, type_name, is_value)| {
+                    let entry = acc.entry(path).or_insert_with(ImportInfo::new);
+                    entry.type_names.insert(type_name);
+                    entry.has_values = entry.has_values || is_value;
                     acc
                 });
-            if !import_paths.is_empty() {
+
+            if !import_info.is_empty() {
                 s.push('\n');
                 s.push_str(&module_import_block(
                     exporter,
                     module.module_path.as_ref(),
-                    &import_paths,
+                    &import_info,
+                    path_resolver,
                 ));
             }
 
-            if !import_paths.is_empty() && !rendered_types.is_empty() {
+            if !import_info.is_empty() && !rendered_types.is_empty() {
                 s.push('\n');
             }
 
@@ -329,24 +349,49 @@ impl Exporter {
             }
 
             let has_content = !exports.is_empty() || !module.constants.is_empty();
+            all_exports.extend(exports);
 
-            for (name, module) in &mut module.children {
-                // This doesn't account for `NamedDataType::requires_reference`
-                // but we keep it for performance.
-                if module.types.is_empty()
-                    && module.constants.is_empty()
-                    && module.children.is_empty()
+            for (_name, child_module) in &mut module.children {
+                if child_module.types.is_empty()
+                    && child_module.constants.is_empty()
+                    && child_module.children.is_empty()
                 {
                     continue;
                 }
 
-                let mut path = path.join(name);
                 let mut out = render_file_header(exporter)?;
+                let mut child_exports = HashMap::new();
 
-                let has_types = export_module(exporter, types, module, &mut out, &path, files)?;
+                let has_types = export_module(
+                    exporter,
+                    types,
+                    child_module,
+                    &mut out,
+                    &mut child_exports,
+                    root_path,
+                    files,
+                    file_info,
+                    path_resolver,
+                )?;
                 if has_types {
-                    path.set_extension(if exporter.jsdoc { "js" } else { "ts" });
-                    files.insert(path, out);
+                    // Use PathResolver for correct file placement (respects FolderGrouping)
+                    let file_path = path_resolver
+                        .module_file_path(child_module.module_path.as_ref())
+                        .map(|rel| root_path.join(rel))
+                        .unwrap_or_else(|| {
+                            let mut p = root_path.join(child_module.module_path.replace("::", "/"));
+                            p.set_extension(exporter.file_extension());
+                            p
+                        });
+
+                    file_info.insert(
+                        file_path.clone(),
+                        FileExportInfo {
+                            exported_names: child_exports.keys().cloned().collect(),
+                            module_path: child_module.module_path.to_string(),
+                        },
+                    );
+                    files.insert(file_path, out);
                 }
             }
 
@@ -354,10 +399,12 @@ impl Exporter {
         }
 
         let mut files = HashMap::new();
+        let mut file_info: HashMap<PathBuf, FileExportInfo> = HashMap::new();
         let mut runtime_path = path.join("index");
         runtime_path.set_extension(if self.jsdoc { "js" } else { "ts" });
 
         let mut root_types = String::new();
+        let mut root_exports = HashMap::new();
         let mut module_graph = export::build_module_graph(types, resolved_types.constants());
         // Extract root constants before passing to export_module(); they go into index.ts
         let root_constants: Vec<_> = std::mem::take(&mut module_graph.constants);
@@ -366,8 +413,11 @@ impl Exporter {
             types,
             &mut module_graph,
             &mut root_types,
+            &mut root_exports,
             path,
             &mut files,
+            &mut file_info,
+            &path_resolver,
         )?;
 
         {
@@ -394,7 +444,7 @@ impl Exporter {
             let has_constants = !root_constants.is_empty();
 
             if !runtime.is_empty() || should_export_user_types || has_constants {
-                files.insert(runtime_path, {
+                files.insert(runtime_path.clone(), {
                     let mut out = render_file_header(self)?;
                     let mut body = String::new();
 
@@ -412,7 +462,8 @@ impl Exporter {
                         body.push_str(&root_types);
                     }
 
-                    let import_paths: BTreeMap<String, bool> = runtime_references
+                    // Build import info for runtime references
+                    let import_info: BTreeMap<String, ImportInfo> = runtime_references
                         .into_iter()
                         .filter_map(|r| {
                             r.get(types).map(|ndt| {
@@ -420,36 +471,29 @@ impl Exporter {
                                     ndt.ty(),
                                     DataType::Enum(e) if crate::legacy::is_native_ts_enum(e)
                                 );
-                                (ndt.module_path().as_ref().to_string(), is_value)
+                                (
+                                    ndt.module_path().as_ref().to_string(),
+                                    ndt.name().to_string(),
+                                    is_value,
+                                )
                             })
                         })
-                        .filter(|(module_path, _)| !module_path.is_empty())
-                        .fold(BTreeMap::new(), |mut acc, (path, is_value)| {
-                            let entry = acc.entry(path).or_insert(false);
-                            *entry = *entry || is_value;
+                        .filter(|(module_path, _, _)| !module_path.is_empty())
+                        .fold(BTreeMap::new(), |mut acc, (path, type_name, is_value)| {
+                            let entry = acc.entry(path).or_insert_with(ImportInfo::new);
+                            entry.type_names.insert(type_name);
+                            entry.has_values = entry.has_values || is_value;
                             acc
                         });
 
-                    let import_paths: BTreeMap<String, bool> = import_paths
-                        .into_iter()
-                        .filter(|(module_path, has_values)| {
-                            !body.contains(&module_import_statement(
-                                self,
-                                "",
-                                module_path,
-                                *has_values,
-                            ))
-                        })
-                        .collect();
-
-                    if !import_paths.is_empty() {
+                    if !import_info.is_empty() {
                         out.push('\n');
-                        out.push_str(&module_import_block(self, "", &import_paths));
+                        out.push_str(&module_import_block(self, "", &import_info, &path_resolver));
                     }
 
                     if !body.is_empty() {
                         out.push('\n');
-                        if !import_paths.is_empty() {
+                        if !import_info.is_empty() {
                             out.push('\n');
                         }
                         out.push_str(&body);
@@ -465,6 +509,13 @@ impl Exporter {
 
                     out
                 });
+            }
+        }
+
+        // Generate index files if configured
+        if let Layout::MultiFile(config) = &self.layout {
+            if let export::IndexFileConfig::ReExportAll = &config.index_files {
+                generate_index_files(self, path, &file_info, &mut files, &path_resolver)?;
             }
         }
 
@@ -491,12 +542,7 @@ impl Exporter {
         // Use shared filesystem cleanup
         let extensions = self.stale_file_extensions();
         let ext_refs: Vec<&str> = extensions.iter().map(|s| *s).collect();
-        export::filesystem::cleanup_stale_files(
-            path,
-            &files,
-            &ext_refs,
-            self.generated_marker(),
-        )?;
+        export::filesystem::cleanup_stale_files(path, &files, &ext_refs, self.generated_marker())?;
 
         Ok(())
     }
@@ -535,20 +581,19 @@ impl ExportLanguage for Exporter {
             .map(|ndt| ndt.module_path().as_ref().to_string())
             .unwrap_or_default();
 
-        let (result, referenced_types) =
-            references::with_module_path(&module_path, || {
-                references::collect_references(|| {
-                    let mut rendered = String::new();
-                    let exports = render_flat_types(
-                        &mut rendered,
-                        self,
-                        types,
-                        module_types.iter().copied(),
-                        indent,
-                    )?;
-                    Ok::<_, Error>((rendered, exports))
-                })
-            });
+        let (result, referenced_types) = references::with_module_path(&module_path, || {
+            references::collect_references(|| {
+                let mut rendered = String::new();
+                let exports = render_flat_types(
+                    &mut rendered,
+                    self,
+                    types,
+                    module_types.iter().copied(),
+                    indent,
+                )?;
+                Ok::<_, Error>((rendered, exports))
+            })
+        });
         let (body, exports) = result?;
 
         let mut referenced_modules: BTreeMap<String, ImportInfo> = BTreeMap::new();
@@ -579,14 +624,14 @@ impl ExportLanguage for Exporter {
         &self,
         from_module_path: &str,
         imports: &BTreeMap<String, ImportInfo>,
-        _path_resolver: &PathResolver,
+        path_resolver: &PathResolver,
     ) -> Result<String, Error> {
-        // Convert ImportInfo map to the bool map expected by module_import_block
-        let bool_map: BTreeMap<String, bool> = imports
-            .iter()
-            .map(|(k, v)| (k.clone(), v.has_values))
-            .collect();
-        Ok(module_import_block(self, from_module_path, &bool_map))
+        Ok(module_import_block(
+            self,
+            from_module_path,
+            imports,
+            path_resolver,
+        ))
     }
 
     fn render_index_file(
@@ -599,12 +644,7 @@ impl ExportLanguage for Exporter {
 
         // Re-export from each file
         for entry in files {
-            if entry.exported_names.is_empty() {
-                continue;
-            }
-            out.push_str("export { ");
-            out.push_str(&entry.exported_names.join(", "));
-            out.push_str(" } from \"./");
+            out.push_str("export * from \"./");
             out.push_str(entry.file_stem);
             out.push_str("\";\n");
         }
@@ -619,10 +659,7 @@ impl ExportLanguage for Exporter {
         Ok(out)
     }
 
-    fn render_constants(
-        &self,
-        constants: &[&NamedConstant],
-    ) -> Result<String, Error> {
+    fn render_constants(&self, constants: &[&NamedConstant]) -> Result<String, Error> {
         let mut s = String::new();
         for constant in constants {
             const_export::export_constant_internal(&mut s, self, constant)?;
@@ -847,9 +884,7 @@ fn render_types(
             for name in module
                 .children
                 .iter()
-                .filter_map(|(name, module)| {
-                    has_renderable_content(module, types).then_some(*name)
-                })
+                .filter_map(|(name, module)| has_renderable_content(module, types).then_some(*name))
                 .chain(
                     module
                         .types
@@ -937,37 +972,18 @@ pub(crate) fn module_alias(module_path: &str) -> String {
     export::module_alias(module_path)
 }
 
-fn module_import_statement(
-    exporter: &Exporter,
-    from_module_path: &str,
-    to_module_path: &str,
-    has_values: bool,
-) -> String {
-    let import_keyword = if exporter.jsdoc || has_values {
-        "import"
-    } else {
-        "import type"
-    };
-
-    format!(
-        "{} * as {} from \"{}\";",
-        import_keyword,
-        export::module_alias(to_module_path),
-        export::relative_import_path(from_module_path, to_module_path)
-    )
-}
-
 fn module_import_block(
     exporter: &Exporter,
     from_module_path: &str,
-    import_paths: &BTreeMap<String, bool>,
+    imports: &BTreeMap<String, ImportInfo>,
+    path_resolver: &PathResolver,
 ) -> String {
     if exporter.jsdoc {
         let mut out = String::from("/**\n");
 
-        for module_path in import_paths.keys() {
+        for module_path in imports.keys() {
             out.push_str(" * @typedef {import(\"");
-            out.push_str(&export::relative_import_path(from_module_path, module_path));
+            out.push_str(&path_resolver.relative_import_path(from_module_path, module_path));
             out.push_str("\")} ");
             out.push_str(&export::module_alias(module_path));
             out.push('\n');
@@ -976,12 +992,122 @@ fn module_import_block(
         out.push_str(" */");
         out
     } else {
-        import_paths
+        let import_style = match &exporter.layout {
+            Layout::MultiFile(config) => &config.import_style,
+            _ => &export::ImportStyle::Namespace,
+        };
+
+        imports
             .iter()
-            .map(|(module_path, has_values)| {
-                module_import_statement(exporter, from_module_path, module_path, *has_values)
+            .map(|(module_path, info)| {
+                let import_keyword = if exporter.jsdoc || info.has_values {
+                    "import"
+                } else {
+                    "import type"
+                };
+                let rel_path = path_resolver.relative_import_path(from_module_path, module_path);
+
+                match import_style {
+                    export::ImportStyle::Named => {
+                        let names: Vec<_> = info.type_names.iter().cloned().collect();
+                        format!(
+                            "{} {{ {} }} from \"{}\";",
+                            import_keyword,
+                            names.join(", "),
+                            rel_path
+                        )
+                    }
+                    export::ImportStyle::Namespace => {
+                        format!(
+                            "{} * as {} from \"{}\";",
+                            import_keyword,
+                            export::module_alias(module_path),
+                            rel_path
+                        )
+                    }
+                }
             })
             .collect::<Vec<_>>()
             .join("\n")
     }
+}
+
+/// Information about exported types in a generated file, used for index file generation.
+struct FileExportInfo {
+    exported_names: Vec<String>,
+    module_path: String,
+}
+
+/// Generate index/barrel files for directories containing generated files.
+fn generate_index_files(
+    exporter: &Exporter,
+    _root: &Path,
+    file_info: &HashMap<PathBuf, FileExportInfo>,
+    files: &mut HashMap<PathBuf, String>,
+    path_resolver: &PathResolver,
+) -> Result<(), Error> {
+    // Group files by parent directory
+    let mut dirs: BTreeMap<PathBuf, Vec<(&PathBuf, &FileExportInfo)>> = BTreeMap::new();
+    for (path, info) in file_info {
+        if let Some(parent) = path.parent() {
+            dirs.entry(parent.to_path_buf())
+                .or_default()
+                .push((path, info));
+        }
+    }
+
+    let index_stem = match exporter.index_file_stem() {
+        Some(stem) => stem,
+        None => return Ok(()),
+    };
+
+    for (dir, dir_files) in &dirs {
+        let entries: Vec<IndexFileEntry> = dir_files
+            .iter()
+            .filter_map(|(path, info)| {
+                path.file_stem()
+                    .and_then(|s| s.to_str())
+                    .filter(|stem| *stem != index_stem)
+                    .map(|stem| IndexFileEntry {
+                        file_stem: stem,
+                        exported_names: &info.exported_names,
+                        module_path: &info.module_path,
+                    })
+            })
+            .collect();
+
+        // Find subdirectories that have their own index files
+        let subdirs: Vec<&str> = dirs
+            .keys()
+            .filter(|other_dir| other_dir.parent() == Some(dir) && *other_dir != dir)
+            .filter_map(|d| d.file_name().and_then(|n| n.to_str()))
+            .collect();
+
+        if !entries.is_empty() || !subdirs.is_empty() {
+            let mut index_path = dir.join(index_stem);
+            index_path.set_extension(exporter.file_extension());
+
+            let rendered = exporter.render_index_file(&entries, &subdirs, path_resolver)?;
+            if rendered.is_empty() {
+                continue;
+            }
+
+            // Append re-exports to existing index file, or create a new one
+            if let Some(existing) = files.get_mut(&index_path) {
+                if !existing.is_empty() {
+                    existing.push('\n');
+                }
+                existing.push_str(&rendered);
+            } else {
+                let mut out = render_file_header(exporter)?;
+                if !out.is_empty() {
+                    out.push('\n');
+                }
+                out.push_str(&rendered);
+                files.insert(index_path, out);
+            }
+        }
+    }
+
+    Ok(())
 }

@@ -1,6 +1,6 @@
 use std::{
     borrow::Cow,
-    collections::{BTreeMap, BTreeSet, HashMap, HashSet},
+    collections::{BTreeMap, HashMap, HashSet},
     fmt,
     ops::Deref,
     path::{Path, PathBuf},
@@ -12,8 +12,7 @@ use specta::{
     datatype::{DataType, NamedDataType, Reference},
     export::{
         self, ExportLanguage, ImportInfo, IndexFileEntry, Layout, ModuleRenderResult, PathResolver,
-        module_graph::Module,
-        topo_sort::topological_sort_types,
+        module_graph::Module, topo_sort::topological_sort_types,
     },
 };
 
@@ -200,13 +199,25 @@ impl Zod {
             return Ok(());
         }
 
+        // Build PathResolver for correct file placement and import path resolution
+        let path_resolver = export::PathResolver::new(
+            self.file_extension(),
+            self.index_file_stem(),
+            &self.layout,
+            types,
+            resolved_types.constants(),
+        );
+
         fn export_module(
             exporter: &Zod,
             types: &Types,
             module: &mut Module,
             s: &mut String,
-            path: &Path,
+            all_exports: &mut HashMap<String, std::panic::Location<'static>>,
+            root_path: &Path,
             files: &mut HashMap<PathBuf, String>,
+            file_info: &mut HashMap<PathBuf, FileExportInfo>,
+            path_resolver: &PathResolver,
         ) -> Result<bool, Error> {
             module.types.sort_by(|a, b| {
                 a.name()
@@ -232,59 +243,105 @@ impl Zod {
 
             let (rendered_types, exports) = rendered_types_result?;
 
-            let import_paths = referenced_types
+            // Build ImportInfo map with type names (needed for Named import style)
+            let import_info: BTreeMap<String, ImportInfo> = referenced_types
                 .into_iter()
                 .filter_map(|r| {
-                    r.get(types)
-                        .map(|ndt| ndt.module_path().as_ref().to_string())
+                    r.get(types).map(|ndt| {
+                        (
+                            ndt.module_path().as_ref().to_string(),
+                            ndt.name().to_string(),
+                        )
+                    })
                 })
-                .filter(|module_path| module_path != module.module_path.as_ref())
-                .collect::<BTreeSet<_>>();
+                .filter(|(module_path, _)| module_path != module.module_path.as_ref())
+                .fold(BTreeMap::new(), |mut acc, (path, type_name)| {
+                    let entry = acc.entry(path).or_insert_with(ImportInfo::new);
+                    entry.type_names.insert(type_name);
+                    acc
+                });
 
-            if !import_paths.is_empty() {
+            if !import_info.is_empty() {
                 s.push('\n');
                 s.push_str(&module_import_block(
+                    exporter,
                     module.module_path.as_ref(),
-                    &import_paths,
+                    &import_info,
+                    path_resolver,
                 ));
             }
 
-            if !import_paths.is_empty() && !rendered_types.is_empty() {
+            if !import_info.is_empty() && !rendered_types.is_empty() {
                 s.push('\n');
             }
 
             s.push_str(&rendered_types);
 
-            for (name, module) in &mut module.children {
-                if module.types.is_empty() && module.children.is_empty() {
+            let has_content = !exports.is_empty();
+            all_exports.extend(exports);
+
+            for (_name, child_module) in &mut module.children {
+                if child_module.types.is_empty() && child_module.children.is_empty() {
                     continue;
                 }
 
-                let mut path = path.join(name);
                 let mut out = render_file_header(exporter);
-                let has_types = export_module(exporter, types, module, &mut out, &path, files)?;
+                let mut child_exports = HashMap::new();
+
+                let has_types = export_module(
+                    exporter,
+                    types,
+                    child_module,
+                    &mut out,
+                    &mut child_exports,
+                    root_path,
+                    files,
+                    file_info,
+                    path_resolver,
+                )?;
                 if has_types {
-                    path.set_extension("ts");
-                    files.insert(path, out);
+                    // Use PathResolver for correct file placement (respects FolderGrouping)
+                    let file_path = path_resolver
+                        .module_file_path(child_module.module_path.as_ref())
+                        .map(|rel| root_path.join(rel))
+                        .unwrap_or_else(|| {
+                            let mut p = root_path.join(child_module.module_path.replace("::", "/"));
+                            p.set_extension(exporter.file_extension());
+                            p
+                        });
+
+                    file_info.insert(
+                        file_path.clone(),
+                        FileExportInfo {
+                            exported_names: child_exports.keys().cloned().collect(),
+                            module_path: child_module.module_path.to_string(),
+                        },
+                    );
+                    files.insert(file_path, out);
                 }
             }
 
-            Ok(!exports.is_empty())
+            Ok(has_content)
         }
 
         let mut files = HashMap::new();
+        let mut file_info: HashMap<PathBuf, FileExportInfo> = HashMap::new();
         let mut runtime_path = path.join("index");
         runtime_path.set_extension("ts");
 
         let mut root_types = String::new();
+        let mut root_exports = HashMap::new();
         let empty_constants = specta::Constants::default();
         export_module(
             self,
             types,
             &mut export::build_module_graph(types, &empty_constants),
             &mut root_types,
+            &mut root_exports,
             path,
             &mut files,
+            &mut file_info,
+            &path_resolver,
         )?;
 
         {
@@ -310,7 +367,7 @@ impl Zod {
                 !has_manually_exported_user_types && !root_types.is_empty();
 
             if !runtime.is_empty() || should_export_user_types {
-                files.insert(runtime_path, {
+                files.insert(runtime_path.clone(), {
                     let mut out = render_file_header(self);
                     let mut body = String::new();
 
@@ -325,23 +382,32 @@ impl Zod {
                         body.push_str(&root_types);
                     }
 
-                    let import_paths = runtime_references
+                    // Build import info for runtime references
+                    let import_info: BTreeMap<String, ImportInfo> = runtime_references
                         .into_iter()
                         .filter_map(|r| {
-                            r.get(types)
-                                .map(|ndt| ndt.module_path().as_ref().to_string())
+                            r.get(types).map(|ndt| {
+                                (
+                                    ndt.module_path().as_ref().to_string(),
+                                    ndt.name().to_string(),
+                                )
+                            })
                         })
-                        .filter(|module_path| !module_path.is_empty())
-                        .collect::<BTreeSet<_>>();
+                        .filter(|(module_path, _)| !module_path.is_empty())
+                        .fold(BTreeMap::new(), |mut acc, (path, type_name)| {
+                            let entry = acc.entry(path).or_insert_with(ImportInfo::new);
+                            entry.type_names.insert(type_name);
+                            acc
+                        });
 
-                    if !import_paths.is_empty() {
+                    if !import_info.is_empty() {
                         out.push('\n');
-                        out.push_str(&module_import_block("", &import_paths));
+                        out.push_str(&module_import_block(self, "", &import_info, &path_resolver));
                     }
 
                     if !body.is_empty() {
                         out.push('\n');
-                        if !import_paths.is_empty() {
+                        if !import_info.is_empty() {
                             out.push('\n');
                         }
                         out.push_str(&body);
@@ -349,6 +415,13 @@ impl Zod {
 
                     out
                 });
+            }
+        }
+
+        // Generate index files if configured
+        if let Layout::MultiFile(config) = &self.layout {
+            if let export::IndexFileConfig::ReExportAll = &config.index_files {
+                generate_index_files(self, path, &file_info, &mut files, &path_resolver)?;
             }
         }
 
@@ -375,12 +448,7 @@ impl Zod {
         // Use shared filesystem cleanup
         let extensions = self.stale_file_extensions();
         let ext_refs: Vec<&str> = extensions.iter().map(|s| *s).collect();
-        export::filesystem::cleanup_stale_files(
-            path,
-            &files,
-            &ext_refs,
-            self.generated_marker(),
-        )?;
+        export::filesystem::cleanup_stale_files(path, &files, &ext_refs, self.generated_marker())?;
 
         Ok(())
     }
@@ -419,20 +487,19 @@ impl ExportLanguage for Zod {
             .map(|ndt| ndt.module_path().as_ref().to_string())
             .unwrap_or_default();
 
-        let (result, referenced_types) =
-            references::with_module_path(&module_path, || {
-                references::collect_references(|| {
-                    let mut rendered = String::new();
-                    let exports = render_flat_types(
-                        &mut rendered,
-                        self,
-                        types,
-                        module_types.iter().copied(),
-                        indent,
-                    )?;
-                    Ok::<_, Error>((rendered, exports))
-                })
-            });
+        let (result, referenced_types) = references::with_module_path(&module_path, || {
+            references::collect_references(|| {
+                let mut rendered = String::new();
+                let exports = render_flat_types(
+                    &mut rendered,
+                    self,
+                    types,
+                    module_types.iter().copied(),
+                    indent,
+                )?;
+                Ok::<_, Error>((rendered, exports))
+            })
+        });
         let (body, exports) = result?;
 
         let mut referenced_modules: BTreeMap<String, ImportInfo> = BTreeMap::new();
@@ -460,10 +527,14 @@ impl ExportLanguage for Zod {
         &self,
         from_module_path: &str,
         imports: &BTreeMap<String, ImportInfo>,
-        _path_resolver: &PathResolver,
+        path_resolver: &PathResolver,
     ) -> Result<String, Error> {
-        let import_set: BTreeSet<String> = imports.keys().cloned().collect();
-        Ok(module_import_block(from_module_path, &import_set))
+        Ok(module_import_block(
+            self,
+            from_module_path,
+            imports,
+            path_resolver,
+        ))
     }
 
     fn render_index_file(
@@ -476,12 +547,7 @@ impl ExportLanguage for Zod {
 
         // Re-export from each file
         for entry in files {
-            if entry.exported_names.is_empty() {
-                continue;
-            }
-            out.push_str("export { ");
-            out.push_str(&entry.exported_names.join(", "));
-            out.push_str(" } from \"./");
+            out.push_str("export * from \"./");
             out.push_str(entry.file_stem);
             out.push_str("\";\n");
         }
@@ -672,18 +738,114 @@ pub(crate) fn module_alias(module_path: &str) -> String {
     export::module_alias(module_path)
 }
 
-fn module_import_statement(from_module_path: &str, to_module_path: &str) -> String {
-    format!(
-        "import * as {} from \"{}\";",
-        export::module_alias(to_module_path),
-        export::relative_import_path(from_module_path, to_module_path)
-    )
-}
+fn module_import_block(
+    exporter: &Zod,
+    from_module_path: &str,
+    imports: &BTreeMap<String, ImportInfo>,
+    path_resolver: &PathResolver,
+) -> String {
+    let import_style = match &exporter.layout {
+        Layout::MultiFile(config) => &config.import_style,
+        _ => &export::ImportStyle::Namespace,
+    };
 
-fn module_import_block(from_module_path: &str, import_paths: &BTreeSet<String>) -> String {
-    import_paths
+    imports
         .iter()
-        .map(|module_path| module_import_statement(from_module_path, module_path))
+        .map(|(module_path, info)| {
+            let rel_path = path_resolver.relative_import_path(from_module_path, module_path);
+
+            match import_style {
+                export::ImportStyle::Named => {
+                    let names: Vec<_> = info.type_names.iter().cloned().collect();
+                    format!("import {{ {} }} from \"{}\";", names.join(", "), rel_path)
+                }
+                export::ImportStyle::Namespace => {
+                    format!(
+                        "import * as {} from \"{}\";",
+                        export::module_alias(module_path),
+                        rel_path
+                    )
+                }
+            }
+        })
         .collect::<Vec<_>>()
         .join("\n")
+}
+
+/// Information about exported types in a generated file, used for index file generation.
+struct FileExportInfo {
+    exported_names: Vec<String>,
+    module_path: String,
+}
+
+/// Generate index/barrel files for directories containing generated files.
+fn generate_index_files(
+    exporter: &Zod,
+    _root: &Path,
+    file_info: &HashMap<PathBuf, FileExportInfo>,
+    files: &mut HashMap<PathBuf, String>,
+    path_resolver: &PathResolver,
+) -> Result<(), Error> {
+    let mut dirs: BTreeMap<PathBuf, Vec<(&PathBuf, &FileExportInfo)>> = BTreeMap::new();
+    for (path, info) in file_info {
+        if let Some(parent) = path.parent() {
+            dirs.entry(parent.to_path_buf())
+                .or_default()
+                .push((path, info));
+        }
+    }
+
+    let index_stem = match exporter.index_file_stem() {
+        Some(stem) => stem,
+        None => return Ok(()),
+    };
+
+    for (dir, dir_files) in &dirs {
+        let entries: Vec<IndexFileEntry> = dir_files
+            .iter()
+            .filter_map(|(path, info)| {
+                path.file_stem()
+                    .and_then(|s| s.to_str())
+                    .filter(|stem| *stem != index_stem)
+                    .map(|stem| IndexFileEntry {
+                        file_stem: stem,
+                        exported_names: &info.exported_names,
+                        module_path: &info.module_path,
+                    })
+            })
+            .collect();
+
+        let subdirs: Vec<&str> = dirs
+            .keys()
+            .filter(|other_dir| other_dir.parent() == Some(dir) && *other_dir != dir)
+            .filter_map(|d| d.file_name().and_then(|n| n.to_str()))
+            .collect();
+
+        if !entries.is_empty() || !subdirs.is_empty() {
+            let mut index_path = dir.join(index_stem);
+            index_path.set_extension(exporter.file_extension());
+
+            let rendered = exporter.render_index_file(&entries, &subdirs, path_resolver)?;
+            if rendered.is_empty() {
+                continue;
+            }
+
+            // Append re-exports to existing index file, or create a new one
+            if let Some(existing) = files.get_mut(&index_path) {
+                if !existing.is_empty() {
+                    existing.push('\n');
+                }
+                existing.push_str(&rendered);
+            } else {
+                let mut out = render_file_header(exporter);
+                if !out.is_empty() {
+                    out.push('\n');
+                }
+                out.push_str(&rendered);
+                files.insert(index_path, out);
+            }
+        }
+    }
+
+    Ok(())
 }
