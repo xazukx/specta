@@ -104,7 +104,7 @@ pub fn datatype_to_schema(
                         datatype_to_schema(js, types, referenced_ndt.ty(), is_definition)
                     }
                 } else {
-                    let ref_uri = if matches!(js.layout, crate::Layout::Files)
+                    let ref_uri = if matches!(js.layout, specta::export::Layout::MultiFile(_))
                         && js.base_uri.is_none()
                     {
                         let ref_module =

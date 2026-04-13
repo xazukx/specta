@@ -217,7 +217,7 @@ fn zod_layout_duplicate_typenames() {
     assert!(err.to_string().contains("Detected multiple types"));
 
     let module_prefixed = Zod::default()
-        .layout(Layout::ModulePrefixedName)
+        .layout(Layout::module_prefixed())
         .export(&resolved)
         .unwrap();
     assert!(module_prefixed.contains("TestingSchema"));
@@ -233,7 +233,7 @@ fn zod_layout_files_export_to() {
     let path = temp.path().join("zod-layout-files");
 
     Zod::default()
-        .layout(Layout::Files)
+        .layout(Layout::multi_file())
         .export_to(&path, &resolved)
         .unwrap();
 
@@ -290,7 +290,7 @@ fn zod_layout_files_preserves_unrelated_typescript_files() {
     std::fs::write(&keep_path, "export const keep = true;\n").unwrap();
 
     Zod::default()
-        .layout(Layout::Files)
+        .layout(Layout::multi_file())
         .export_to(&path, &resolved)
         .unwrap();
 
@@ -315,7 +315,7 @@ fn typescript_layout_files_preserves_unrelated_typescript_files() {
     std::fs::write(&keep_path, "export const keep = true;\n").unwrap();
 
     Typescript::default()
-        .layout(specta_typescript::Layout::Files)
+        .layout(specta_typescript::Layout::multi_file())
         .export_to(&path, &resolved)
         .unwrap();
 
@@ -353,10 +353,10 @@ fn zod_layout_files_errors_on_export() {
     let resolved = ResolvedTypes::from_resolved_types(types);
 
     let err = Zod::default()
-        .layout(Layout::Files)
+        .layout(Layout::multi_file())
         .export(&resolved)
         .unwrap_err();
-    assert!(err.to_string().contains("Unable to export layout Files"));
+    assert!(err.to_string().contains("Unable to export layout MultiFile"));
 }
 
 fn temp_dir() -> TempDir {

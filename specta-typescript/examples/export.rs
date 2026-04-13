@@ -34,13 +34,13 @@ fn main() {
     let resolved_types = ResolvedTypes::from_resolved_types(specta::collect_types());
 
     Typescript::default()
-        .layout(specta_typescript::Layout::Files)
+        .layout(specta_typescript::Layout::multi_file())
         // This requires the `export` feature to be enabled on Specta
         .export_to("./bindings", &resolved_types)
         .unwrap();
 
     JSDoc::default()
-        .layout(specta_typescript::Layout::Files)
+        .layout(specta_typescript::Layout::multi_file())
         // This requires the `export` feature to be enabled on Specta
         .export_to("./bindings2", &resolved_types)
         .unwrap();

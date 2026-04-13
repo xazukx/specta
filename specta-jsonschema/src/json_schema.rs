@@ -1,6 +1,11 @@
-use crate::{Error, Layout, SchemaVersion, primitives};
+use crate::{Error, SchemaVersion, primitives};
 use serde_json::Value;
-use specta::{ResolvedTypes, Types, datatype::NamedDataType};
+use specta::{
+    ResolvedTypes, Types,
+    datatype::NamedDataType,
+    export::{ExportLanguage, ImportInfo, Layout, ModuleRenderResult, PathResolver},
+};
+use std::borrow::Cow;
 use std::collections::{BTreeMap, HashMap};
 use std::path::Path;
 
@@ -9,7 +14,8 @@ use std::path::Path;
 pub struct JsonSchema {
     /// JSON Schema version to use
     pub schema_version: SchemaVersion,
-    /// Layout for output organization
+    /// Layout for output organization.
+    /// Use `Layout::default()` for single-file output, `Layout::multi_file()` for per-type files.
     pub layout: Layout,
     /// Optional title for the root schema
     pub title: Option<String>,
@@ -105,11 +111,11 @@ impl JsonSchema {
             return uri.clone();
         }
 
-        match self.layout {
-            Layout::SingleFile => {
+        match &self.layout {
+            Layout::SingleFile(_) => {
                 format!("#/{}/{}", self.schema_version.definitions_key(), type_name)
             }
-            Layout::Files => {
+            Layout::MultiFile(_) => {
                 if let Some(base) = &self.base_uri {
                     let base = base.trim_end_matches('/');
                     format!("{}/{}.schema.json", base, type_name)
@@ -132,10 +138,10 @@ impl JsonSchema {
     /// Export resolved types to JSON Schema as a `serde_json::Value`.
     pub fn export_as_value(&self, resolved: &ResolvedTypes) -> Result<Value, Error> {
         let types = resolved.as_types();
-        match self.layout {
-            Layout::SingleFile => self.export_single_file(types),
-            Layout::Files => Err(Error::ConversionError(
-                "Use export_to() for Files layout".to_string(),
+        match &self.layout {
+            Layout::SingleFile(_) => self.export_single_file(types),
+            Layout::MultiFile(_) => Err(Error::ConversionError(
+                "Use export_to() for MultiFile layout".to_string(),
             )),
         }
     }
@@ -145,13 +151,13 @@ impl JsonSchema {
         let path = path.as_ref();
         let types = resolved.as_types();
 
-        match self.layout {
-            Layout::SingleFile => {
+        match &self.layout {
+            Layout::SingleFile(_) => {
                 let json = self.export_single_file(types)?;
                 std::fs::write(path, serde_json::to_string_pretty(&json)?)?;
                 Ok(())
             }
-            Layout::Files => self.export_files(path, types),
+            Layout::MultiFile(_) => self.export_files(path, types),
         }
     }
 
@@ -166,10 +172,10 @@ impl JsonSchema {
 
     /// Export raw types (without serde transformation) as a `serde_json::Value`.
     pub fn export_raw_as_value(&self, types: &Types) -> Result<Value, Error> {
-        match self.layout {
-            Layout::SingleFile => self.export_single_file(types),
-            Layout::Files => Err(Error::ConversionError(
-                "Use export_to() for Files layout".to_string(),
+        match &self.layout {
+            Layout::SingleFile(_) => self.export_single_file(types),
+            Layout::MultiFile(_) => Err(Error::ConversionError(
+                "Use export_to() for MultiFile layout".to_string(),
             )),
         }
     }
@@ -267,5 +273,89 @@ impl JsonSchema {
         }
 
         Ok(())
+    }
+}
+
+// --- ExportLanguage trait implementation ---
+
+impl ExportLanguage for JsonSchema {
+    type Error = Error;
+
+    fn file_extension(&self) -> &str {
+        "schema.json"
+    }
+
+    fn index_file_stem(&self) -> Option<&str> {
+        None // JSON Schema doesn't use barrel files
+    }
+
+    fn render_file_header(&self) -> String {
+        String::new() // JSON has no header comments
+    }
+
+    fn render_module_types(
+        &self,
+        types: &Types,
+        module_types: &[&NamedDataType],
+        _indent: &str,
+    ) -> Result<ModuleRenderResult, Error> {
+        let mut body = String::new();
+        let mut exports = HashMap::new();
+
+        for ndt in module_types {
+            if !ndt.requires_reference(types) {
+                continue;
+            }
+
+            let schema = primitives::export(self, types, ndt)?;
+            let name = ndt.name().to_string();
+
+            let mut root = serde_json::json!({
+                "$schema": self.schema_version.uri(),
+            });
+
+            let root_obj = root.as_object_mut().unwrap();
+
+            if let Some(base) = &self.base_uri {
+                let base = base.trim_end_matches('/');
+                let filename = format!("{}.schema.json", name);
+                root_obj.insert(
+                    "$id".to_string(),
+                    Value::String(format!("{}/{}", base, filename)),
+                );
+            }
+
+            if let Some(obj) = schema.as_object() {
+                for (k, v) in obj {
+                    root_obj.insert(k.clone(), v.clone());
+                }
+            }
+
+            if !body.is_empty() {
+                body.push('\n');
+            }
+            body.push_str(&serde_json::to_string_pretty(&root)?);
+
+            exports.insert(name, ndt.location());
+        }
+
+        Ok(ModuleRenderResult {
+            body,
+            exports,
+            referenced_modules: BTreeMap::new(), // JSON Schema uses inline $ref
+        })
+    }
+
+    fn render_imports(
+        &self,
+        _from_module_path: &str,
+        _imports: &BTreeMap<String, ImportInfo>,
+        _path_resolver: &PathResolver,
+    ) -> Result<String, Error> {
+        Ok(String::new()) // JSON Schema uses inline $ref, not import statements
+    }
+
+    fn exported_type_name(&self, _layout: &Layout, ndt: &NamedDataType) -> Cow<'static, str> {
+        ndt.name().clone()
     }
 }

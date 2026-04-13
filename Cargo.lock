@@ -772,6 +772,7 @@ dependencies = [
  "specta-serde",
  "specta-typescript",
  "specta-zod",
+ "tempfile",
 ]
 
 [[package]]

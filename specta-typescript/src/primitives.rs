@@ -119,8 +119,8 @@ fn export_single_internal(
             cfg: exporter,
             path: vec![],
         },
-        &match exporter.layout {
-            Layout::ModulePrefixedName => {
+        &match &exporter.layout {
+            Layout::SingleFile(config) if config.module_prefix_names => {
                 let mut s = ndt.module_path().split("::").collect::<Vec<_>>().join("_");
                 s.push('_');
                 s.push_str(ndt.name());
@@ -2040,43 +2040,44 @@ fn reference_named_dt(
         // We check it's valid before tracking
         crate::references::track_nr(r);
 
-        let name = match exporter.layout {
-            Layout::ModulePrefixedName => {
-                let mut s = ndt.module_path().split("::").collect::<Vec<_>>().join("_");
-                s.push('_');
-                s.push_str(ndt.name());
-                Cow::Owned(s)
+        let name = if exporter.use_namespaces {
+            if ndt.module_path().is_empty() {
+                ndt.name().clone()
+            } else {
+                let mut path =
+                    ndt.module_path()
+                        .split("::")
+                        .fold("$s$.".to_string(), |mut s, segment| {
+                            s.push_str(segment);
+                            s.push('.');
+                            s
+                        });
+                path.push_str(ndt.name());
+                Cow::Owned(path)
             }
-            Layout::Namespaces => {
-                if ndt.module_path().is_empty() {
-                    ndt.name().clone()
-                } else {
-                    let mut path =
-                        ndt.module_path()
-                            .split("::")
-                            .fold("$s$.".to_string(), |mut s, segment| {
-                                s.push_str(segment);
-                                s.push('.');
-                                s
-                            });
-                    path.push_str(ndt.name());
-                    Cow::Owned(path)
+        } else {
+            match &exporter.layout {
+                Layout::SingleFile(config) if config.module_prefix_names => {
+                    let mut s = ndt.module_path().split("::").collect::<Vec<_>>().join("_");
+                    s.push('_');
+                    s.push_str(ndt.name());
+                    Cow::Owned(s)
                 }
-            }
-            Layout::Files => {
-                let current_module_path =
-                    crate::references::current_module_path().unwrap_or_default();
+                Layout::MultiFile(_) => {
+                    let current_module_path =
+                        crate::references::current_module_path().unwrap_or_default();
 
-                if ndt.module_path() == &current_module_path {
-                    ndt.name().clone()
-                } else {
-                    let mut path = crate::exporter::module_alias(ndt.module_path());
-                    path.push('.');
-                    path.push_str(ndt.name());
-                    Cow::Owned(path)
+                    if ndt.module_path() == &current_module_path {
+                        ndt.name().clone()
+                    } else {
+                        let mut path = crate::exporter::module_alias(ndt.module_path());
+                        path.push('.');
+                        path.push_str(ndt.name());
+                        Cow::Owned(path)
+                    }
                 }
+                _ => ndt.name().clone(),
             }
-            _ => ndt.name().clone(),
         };
 
         let scoped_generics = generics

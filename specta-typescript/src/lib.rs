@@ -63,9 +63,15 @@ mod typescript;
 
 pub use branded::Branded;
 pub use error::Error;
-pub use exporter::{BrandedTypeExporter, Exporter, FrameworkExporter, Layout};
+pub use exporter::{BrandedTypeExporter, Exporter, FrameworkExporter};
 pub use jsdoc::JSDoc;
 pub use opaque::define;
 pub use references::collect_references;
 pub use types::{Any, Never, Unknown};
 pub use typescript::Typescript;
+
+// Re-export unified Layout and shared export infrastructure
+pub use specta::export::{
+    ExportLanguage, FolderGrouping, ImportStyle, IndexFileConfig, Layout, MultiFileConfig,
+    PathResolver, SingleFileConfig,
+};

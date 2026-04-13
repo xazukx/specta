@@ -566,17 +566,16 @@ fn typescript_export_to() {
     let temp = TempDir::new_in(temp).unwrap();
 
     for layout in [
-        Layout::Files,
-        Layout::FlatFile,
-        Layout::ModulePrefixedName,
-        Layout::Namespaces,
+        Layout::multi_file(),
+        Layout::default(),
+        Layout::module_prefixed(),
     ] {
         for (mode, result) in phase_collections() {
             let name = format!("ts-export-to-{}-{mode}", layout.to_string().to_lowercase());
             let output = phase_output(result, |_, types| {
                 let path = temp.path().join(&name);
                 Typescript::default()
-                    .layout(layout)
+                    .layout(layout.clone())
                     .export_to(&path, &types)
                     .map_err(|err| err.to_string())?;
                 fs_to_string(&path).map_err(|err| err.to_string())

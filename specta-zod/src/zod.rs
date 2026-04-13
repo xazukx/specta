@@ -1,6 +1,6 @@
 use std::{
     borrow::Cow,
-    collections::{BTreeMap, BTreeSet, HashMap, HashSet, VecDeque},
+    collections::{BTreeMap, BTreeSet, HashMap, HashSet},
     fmt,
     ops::Deref,
     path::{Path, PathBuf},
@@ -9,7 +9,12 @@ use std::{
 
 use specta::{
     ResolvedTypes, Types,
-    datatype::{DataType, Fields, NamedDataType, Reference},
+    datatype::{DataType, NamedDataType, Reference},
+    export::{
+        self, ExportLanguage, ImportInfo, IndexFileEntry, Layout, ModuleRenderResult, PathResolver,
+        module_graph::Module,
+        topo_sort::topological_sort_types,
+    },
 };
 
 use crate::{Error, primitives, references};
@@ -36,24 +41,6 @@ pub enum BigIntExportBehavior {
     /// Abort export on BigInt usage.
     #[default]
     Fail,
-}
-
-/// Allows configuring the format of generated output.
-#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
-pub enum Layout {
-    /// Flatten all types into one file with unmodified names.
-    #[default]
-    FlatFile,
-    /// Flatten into one file with module prefixes added to each type name.
-    ModulePrefixedName,
-    /// Emit one file per Rust module path.
-    Files,
-}
-
-impl fmt::Display for Layout {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "{self:?}")
-    }
 }
 
 #[derive(Clone)]
@@ -164,8 +151,8 @@ impl Zod {
     pub fn export(&self, resolved_types: &ResolvedTypes) -> Result<String, Error> {
         let types = resolved_types.as_types();
 
-        if let Layout::Files = self.layout {
-            return Err(Error::unable_to_export(self.layout));
+        if matches!(self.layout, Layout::MultiFile(_)) {
+            return Err(Error::unable_to_export(&self.layout));
         }
 
         let mut out = render_file_header(self);
@@ -204,7 +191,7 @@ impl Zod {
         let types = resolved_types.as_types();
         let path = path.as_ref();
 
-        if self.layout != Layout::Files {
+        if !matches!(self.layout, Layout::MultiFile(_)) {
             let result = self.export(resolved_types)?;
             if let Some(parent) = path.parent() {
                 std::fs::create_dir_all(parent)?;
@@ -213,7 +200,7 @@ impl Zod {
             return Ok(());
         }
 
-        fn export(
+        fn export_module(
             exporter: &Zod,
             types: &Types,
             module: &mut Module,
@@ -275,7 +262,7 @@ impl Zod {
 
                 let mut path = path.join(name);
                 let mut out = render_file_header(exporter);
-                let has_types = export(exporter, types, module, &mut out, &path, files)?;
+                let has_types = export_module(exporter, types, module, &mut out, &path, files)?;
                 if has_types {
                     path.set_extension("ts");
                     files.insert(path, out);
@@ -290,10 +277,11 @@ impl Zod {
         runtime_path.set_extension("ts");
 
         let mut root_types = String::new();
-        export(
+        let empty_constants = specta::Constants::default();
+        export_module(
             self,
             types,
-            &mut build_module_graph(types),
+            &mut export::build_module_graph(types, &empty_constants),
             &mut root_types,
             path,
             &mut files,
@@ -384,9 +372,142 @@ impl Zod {
             std::fs::write(path, content)?;
         }
 
-        cleanup_stale_files(path, &files)?;
+        // Use shared filesystem cleanup
+        let extensions = self.stale_file_extensions();
+        let ext_refs: Vec<&str> = extensions.iter().map(|s| *s).collect();
+        export::filesystem::cleanup_stale_files(
+            path,
+            &files,
+            &ext_refs,
+            self.generated_marker(),
+        )?;
 
         Ok(())
+    }
+}
+
+// --- ExportLanguage trait implementation ---
+
+impl ExportLanguage for Zod {
+    type Error = Error;
+
+    fn file_extension(&self) -> &str {
+        "ts"
+    }
+
+    fn stale_file_extensions(&self) -> Vec<&str> {
+        vec!["ts"]
+    }
+
+    fn index_file_stem(&self) -> Option<&str> {
+        Some("index")
+    }
+
+    fn render_file_header(&self) -> String {
+        render_file_header(self)
+    }
+
+    fn render_module_types(
+        &self,
+        types: &Types,
+        module_types: &[&NamedDataType],
+        indent: &str,
+    ) -> Result<ModuleRenderResult, Error> {
+        // Infer the module path from the types being rendered
+        let module_path = module_types
+            .first()
+            .map(|ndt| ndt.module_path().as_ref().to_string())
+            .unwrap_or_default();
+
+        let (result, referenced_types) =
+            references::with_module_path(&module_path, || {
+                references::collect_references(|| {
+                    let mut rendered = String::new();
+                    let exports = render_flat_types(
+                        &mut rendered,
+                        self,
+                        types,
+                        module_types.iter().copied(),
+                        indent,
+                    )?;
+                    Ok::<_, Error>((rendered, exports))
+                })
+            });
+        let (body, exports) = result?;
+
+        let mut referenced_modules: BTreeMap<String, ImportInfo> = BTreeMap::new();
+        for r in referenced_types {
+            if let Some(ndt) = r.get(types) {
+                let mod_path = ndt.module_path().as_ref().to_string();
+                let type_name = ndt.name().to_string();
+                let entry = referenced_modules
+                    .entry(mod_path)
+                    .or_insert_with(ImportInfo::new);
+                entry.type_names.insert(type_name);
+                // Zod schemas are always runtime values, but has_values
+                // is only relevant for TS import/import type distinction
+            }
+        }
+
+        Ok(ModuleRenderResult {
+            body,
+            exports,
+            referenced_modules,
+        })
+    }
+
+    fn render_imports(
+        &self,
+        from_module_path: &str,
+        imports: &BTreeMap<String, ImportInfo>,
+        _path_resolver: &PathResolver,
+    ) -> Result<String, Error> {
+        let import_set: BTreeSet<String> = imports.keys().cloned().collect();
+        Ok(module_import_block(from_module_path, &import_set))
+    }
+
+    fn render_index_file(
+        &self,
+        files: &[IndexFileEntry],
+        subdirectories: &[&str],
+        _path_resolver: &PathResolver,
+    ) -> Result<String, Error> {
+        let mut out = String::new();
+
+        // Re-export from each file
+        for entry in files {
+            if entry.exported_names.is_empty() {
+                continue;
+            }
+            out.push_str("export { ");
+            out.push_str(&entry.exported_names.join(", "));
+            out.push_str(" } from \"./");
+            out.push_str(entry.file_stem);
+            out.push_str("\";\n");
+        }
+
+        // Re-export from subdirectories
+        for subdir in subdirectories {
+            out.push_str("export * from \"./");
+            out.push_str(subdir);
+            out.push_str("\";\n");
+        }
+
+        Ok(out)
+    }
+
+    fn exported_type_name(&self, layout: &Layout, ndt: &NamedDataType) -> Cow<'static, str> {
+        match layout {
+            Layout::SingleFile(config) if config.module_prefix_names => {
+                let mut s = ndt.module_path().split("::").collect::<Vec<_>>().join("_");
+                if !s.is_empty() {
+                    s.push('_');
+                }
+                s.push_str(ndt.name());
+                Cow::Owned(s)
+            }
+            _ => ndt.name().clone(),
+        }
     }
 }
 
@@ -465,48 +586,6 @@ impl FrameworkExporter<'_> {
     }
 }
 
-struct Module<'a> {
-    types: Vec<&'a NamedDataType>,
-    children: BTreeMap<&'a str, Module<'a>>,
-    module_path: Cow<'static, str>,
-}
-
-fn build_module_graph(types: &Types) -> Module<'_> {
-    types.into_unsorted_iter().fold(
-        Module {
-            types: Default::default(),
-            children: Default::default(),
-            module_path: Default::default(),
-        },
-        |mut ns, ndt| {
-            let path = ndt.module_path();
-
-            if path.is_empty() {
-                ns.types.push(ndt);
-            } else {
-                let mut current = &mut ns;
-                let mut current_path = String::new();
-                for segment in path.split("::") {
-                    if !current_path.is_empty() {
-                        current_path.push_str("::");
-                    }
-                    current_path.push_str(segment);
-
-                    current = current.children.entry(segment).or_insert_with(|| Module {
-                        types: Default::default(),
-                        children: Default::default(),
-                        module_path: current_path.clone().into(),
-                    });
-                }
-
-                current.types.push(ndt);
-            }
-
-            ns
-        },
-    )
-}
-
 fn render_file_header(exporter: &Zod) -> String {
     let mut out = exporter.header.to_string();
     if !exporter.header.is_empty() {
@@ -527,11 +606,11 @@ fn render_types(
     types: &Types,
     files_user_types: &str,
 ) -> Result<(), Error> {
-    match exporter.layout {
-        Layout::FlatFile | Layout::ModulePrefixedName => {
+    match &exporter.layout {
+        Layout::SingleFile(_) => {
             render_flat_types(s, exporter, types, types.into_sorted_iter(), "")?;
         }
-        Layout::Files => {
+        Layout::MultiFile(_) => {
             if !files_user_types.is_empty() {
                 s.push_str(files_user_types);
             }
@@ -565,6 +644,7 @@ fn render_flat_types<'a>(
         })
         .collect::<Result<Vec<_>, _>>()?;
 
+    // Use shared topological sort
     let ndts = topological_sort_types(ndts, types);
 
     primitives::export_internal(s, exporter, types, ndts.into_iter(), indent)?;
@@ -572,102 +652,9 @@ fn render_flat_types<'a>(
     Ok(exports)
 }
 
-fn collect_existing_files(root: &Path) -> Result<HashSet<PathBuf>, Error> {
-    if !root.exists() {
-        return Ok(HashSet::new());
-    }
-
-    let mut files = HashSet::new();
-    let entries =
-        std::fs::read_dir(root).map_err(|source| Error::read_dir(root.to_path_buf(), source))?;
-    for entry in entries {
-        let entry = entry.map_err(|source| Error::read_dir(root.to_path_buf(), source))?;
-        let path = entry.path();
-        let file_type = entry
-            .file_type()
-            .map_err(|source| Error::metadata(path.clone(), source))?;
-
-        if file_type.is_symlink() {
-            continue;
-        }
-
-        if file_type.is_dir() {
-            files.extend(collect_existing_files(&path)?);
-        } else if matches!(path.extension().and_then(|e| e.to_str()), Some("ts")) {
-            files.insert(path);
-        }
-    }
-
-    Ok(files)
-}
-
-fn is_generated_specta_file(path: &Path) -> Result<bool, Error> {
-    match std::fs::read_to_string(path) {
-        Ok(contents) => Ok(contents.contains("generated by Specta")),
-        Err(err) if err.kind() == std::io::ErrorKind::InvalidData => Ok(false),
-        Err(source) => Err(Error::from(source)),
-    }
-}
-
-fn remove_empty_dirs(path: &Path, root: &Path) -> Result<(), Error> {
-    let entries =
-        std::fs::read_dir(path).map_err(|source| Error::read_dir(path.to_path_buf(), source))?;
-    for entry in entries {
-        let entry = entry.map_err(|source| Error::read_dir(path.to_path_buf(), source))?;
-        let entry_path = entry.path();
-        let file_type = entry
-            .file_type()
-            .map_err(|source| Error::metadata(entry_path.clone(), source))?;
-        if file_type.is_symlink() {
-            continue;
-        }
-        if file_type.is_dir() {
-            remove_empty_dirs(&entry_path, root)?;
-        }
-    }
-
-    let is_empty = path
-        .read_dir()
-        .map_err(|source| Error::read_dir(path.to_path_buf(), source))?
-        .next()
-        .is_none();
-
-    if path != root && is_empty {
-        match std::fs::remove_dir(path) {
-            Ok(()) => {}
-            Err(err) if err.kind() == std::io::ErrorKind::NotFound => {}
-            Err(source) => {
-                return Err(Error::remove_dir(path.to_path_buf(), source));
-            }
-        }
-    }
-    Ok(())
-}
-
-fn cleanup_stale_files(root: &Path, current_files: &HashMap<PathBuf, String>) -> Result<(), Error> {
-    for path in collect_existing_files(root)? {
-        if current_files.contains_key(&path) || !is_generated_specta_file(&path)? {
-            continue;
-        }
-
-        std::fs::remove_file(&path).or_else(|source| {
-            if source.kind() == std::io::ErrorKind::NotFound {
-                Ok(())
-            } else {
-                Err(Error::remove_file(path.clone(), source))
-            }
-        })?;
-    }
-
-    remove_empty_dirs(root, root)?;
-
-    Ok(())
-}
-
 fn exported_type_name(exporter: &Zod, ndt: &NamedDataType) -> Cow<'static, str> {
-    match exporter.layout {
-        Layout::FlatFile | Layout::Files => ndt.name().clone(),
-        Layout::ModulePrefixedName => {
+    match &exporter.layout {
+        Layout::SingleFile(config) if config.module_prefix_names => {
             let mut s = ndt.module_path().split("::").collect::<Vec<_>>().join("_");
             if !s.is_empty() {
                 s.push('_');
@@ -675,22 +662,21 @@ fn exported_type_name(exporter: &Zod, ndt: &NamedDataType) -> Cow<'static, str> 
             s.push_str(ndt.name());
             Cow::Owned(s)
         }
+        _ => ndt.name().clone(),
     }
 }
 
+/// Compute the module alias for namespace imports.
+/// Delegates to the shared implementation.
 pub(crate) fn module_alias(module_path: &str) -> String {
-    if module_path.is_empty() {
-        "$root".to_string()
-    } else {
-        module_path.split("::").collect::<Vec<_>>().join("$")
-    }
+    export::module_alias(module_path)
 }
 
 fn module_import_statement(from_module_path: &str, to_module_path: &str) -> String {
     format!(
         "import * as {} from \"{}\";",
-        module_alias(to_module_path),
-        module_import_path(from_module_path, to_module_path)
+        export::module_alias(to_module_path),
+        export::relative_import_path(from_module_path, to_module_path)
     )
 }
 
@@ -700,198 +686,4 @@ fn module_import_block(from_module_path: &str, import_paths: &BTreeSet<String>) 
         .map(|module_path| module_import_statement(from_module_path, module_path))
         .collect::<Vec<_>>()
         .join("\n")
-}
-
-fn module_import_path(from_module_path: &str, to_module_path: &str) -> String {
-    fn module_file_segments(module_path: &str) -> Vec<&str> {
-        if module_path.is_empty() {
-            vec!["index"]
-        } else {
-            module_path.split("::").collect()
-        }
-    }
-
-    let from_file_segments = module_file_segments(from_module_path);
-    let from_dir_segments = &from_file_segments[..from_file_segments.len() - 1];
-    let to_file_segments = module_file_segments(to_module_path);
-
-    let shared = from_dir_segments
-        .iter()
-        .zip(to_file_segments.iter())
-        .take_while(|(a, b)| a == b)
-        .count();
-
-    let mut relative_parts = Vec::new();
-    relative_parts.extend(std::iter::repeat_n(
-        "..",
-        from_dir_segments.len().saturating_sub(shared),
-    ));
-    relative_parts.extend(to_file_segments.iter().skip(shared).copied());
-
-    if relative_parts
-        .first()
-        .is_none_or(|v| *v != "." && *v != "..")
-    {
-        relative_parts.insert(0, ".");
-    }
-
-    relative_parts.join("/")
-}
-
-/// Topologically sort types so dependencies are emitted before the types that reference them.
-fn topological_sort_types<'a>(
-    ndts: Vec<&'a NamedDataType>,
-    types: &Types,
-) -> Vec<&'a NamedDataType> {
-    if ndts.len() <= 1 {
-        return ndts;
-    }
-
-    // Map each NamedDataType pointer to its index in the vec
-    let ptr_to_index: HashMap<*const NamedDataType, usize> = ndts
-        .iter()
-        .enumerate()
-        .map(|(i, ndt)| (*ndt as *const NamedDataType, i))
-        .collect();
-
-    // Build adjacency list: adj[j] contains i means type i depends on type j
-    let n = ndts.len();
-    let mut in_degree = vec![0usize; n];
-    let mut adj: Vec<Vec<usize>> = vec![vec![]; n];
-
-    for (i, ndt) in ndts.iter().enumerate() {
-        let mut dep_indices = HashSet::new();
-        let mut visited_inline = HashSet::new();
-        collect_type_deps(
-            ndt.ty(),
-            types,
-            &ptr_to_index,
-            &mut dep_indices,
-            &mut visited_inline,
-        );
-        for j in dep_indices {
-            if i != j {
-                adj[j].push(i);
-                in_degree[i] += 1;
-            }
-        }
-    }
-
-    // Kahn's algorithm
-    let mut queue: VecDeque<usize> = in_degree
-        .iter()
-        .enumerate()
-        .filter(|&(_, d)| *d == 0)
-        .map(|(i, _)| i)
-        .collect();
-
-    let mut sorted = Vec::with_capacity(n);
-    while let Some(node) = queue.pop_front() {
-        sorted.push(node);
-        for &neighbor in &adj[node] {
-            in_degree[neighbor] -= 1;
-            if in_degree[neighbor] == 0 {
-                queue.push_back(neighbor);
-            }
-        }
-    }
-
-    // If cycles exist, append remaining nodes in original order
-    if sorted.len() < n {
-        let in_sorted: HashSet<usize> = sorted.iter().copied().collect();
-        for i in 0..n {
-            if !in_sorted.contains(&i) {
-                sorted.push(i);
-            }
-        }
-    }
-
-    sorted.into_iter().map(|i| ndts[i]).collect()
-}
-
-/// Walk a DataType tree and collect indices of named types it depends on.
-fn collect_type_deps(
-    dt: &DataType,
-    types: &Types,
-    ptr_to_index: &HashMap<*const NamedDataType, usize>,
-    deps: &mut HashSet<usize>,
-    visited_inline: &mut HashSet<*const NamedDataType>,
-) {
-    match dt {
-        DataType::Primitive(_) | DataType::Constant(_) => {}
-        DataType::List(l) => collect_type_deps(l.ty(), types, ptr_to_index, deps, visited_inline),
-        DataType::Map(m) => {
-            collect_type_deps(m.key_ty(), types, ptr_to_index, deps, visited_inline);
-            collect_type_deps(m.value_ty(), types, ptr_to_index, deps, visited_inline);
-        }
-        DataType::Nullable(inner) => {
-            collect_type_deps(inner, types, ptr_to_index, deps, visited_inline)
-        }
-        DataType::Struct(st) => {
-            collect_fields_deps(st.fields(), types, ptr_to_index, deps, visited_inline)
-        }
-        DataType::Enum(e) => {
-            for (_, variant) in e.variants() {
-                collect_fields_deps(variant.fields(), types, ptr_to_index, deps, visited_inline);
-            }
-        }
-        DataType::Tuple(t) => {
-            for elem in t.elements() {
-                collect_type_deps(elem, types, ptr_to_index, deps, visited_inline);
-            }
-        }
-        DataType::Reference(r) => match r {
-            Reference::Named(nr) => {
-                if let Some(referenced_ndt) = nr.get(types) {
-                    let ptr = referenced_ndt as *const NamedDataType;
-                    if nr.inline() {
-                        // Inline references are expanded in place; recurse into the
-                        // referenced type's body to capture transitive dependencies.
-                        if visited_inline.insert(ptr) {
-                            collect_type_deps(
-                                referenced_ndt.ty(),
-                                types,
-                                ptr_to_index,
-                                deps,
-                                visited_inline,
-                            );
-                        }
-                    } else if let Some(&idx) = ptr_to_index.get(&ptr) {
-                        deps.insert(idx);
-                    }
-                }
-                // Walk generic argument types as they are rendered inline.
-                for (_, generic_dt) in nr.generics() {
-                    collect_type_deps(generic_dt, types, ptr_to_index, deps, visited_inline);
-                }
-            }
-            Reference::Generic(_) | Reference::Opaque(_) => {}
-        },
-    }
-}
-
-fn collect_fields_deps(
-    fields: &Fields,
-    types: &Types,
-    ptr_to_index: &HashMap<*const NamedDataType, usize>,
-    deps: &mut HashSet<usize>,
-    visited_inline: &mut HashSet<*const NamedDataType>,
-) {
-    match fields {
-        Fields::Unit => {}
-        Fields::Unnamed(unnamed) => {
-            for field in unnamed.fields() {
-                if let Some(ty) = field.ty() {
-                    collect_type_deps(ty, types, ptr_to_index, deps, visited_inline);
-                }
-            }
-        }
-        Fields::Named(named) => {
-            for (_, field) in named.fields() {
-                if let Some(ty) = field.ty() {
-                    collect_type_deps(ty, types, ptr_to_index, deps, visited_inline);
-                }
-            }
-        }
-    }
 }

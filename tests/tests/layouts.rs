@@ -55,34 +55,34 @@ fn duplicate_typenames_layouts() {
 
     assert_error_contains(
         Typescript::default()
-            .layout(Layout::FlatFile)
+            .layout(Layout::default())
             .export(&resolved),
         "Detected multiple types",
     );
 
     let module_prefixed = Typescript::default()
-        .layout(Layout::ModulePrefixedName)
+        .layout(Layout::module_prefixed())
         .export(&resolved)
         .unwrap();
     insta::assert_snapshot!("layouts-duplicate-module-prefixed", module_prefixed);
 
     let namespaces = Typescript::default()
-        .layout(Layout::Namespaces)
+        .namespaces(true)
         .export(&resolved)
         .unwrap();
     insta::assert_snapshot!("layouts-duplicate-namespaces", namespaces);
 
     assert_error_contains(
         Typescript::default()
-            .layout(Layout::Files)
+            .layout(Layout::multi_file())
             .export(&resolved),
-        "Unable to export layout Files",
+        "Unable to export layout MultiFile",
     );
 
     let temp = temp_dir();
     let path = temp.path().join("duplicate-layout");
     Typescript::default()
-        .layout(Layout::Files)
+        .layout(Layout::multi_file())
         .export_to(&path, &resolved)
         .unwrap();
 
@@ -101,34 +101,34 @@ fn non_duplicate_typenames_layouts() {
     insta::assert_snapshot!("layouts-non-duplicate-default", default_output);
 
     let flat = Typescript::default()
-        .layout(Layout::FlatFile)
+        .layout(Layout::default())
         .export(&resolved)
         .unwrap();
     insta::assert_snapshot!("layouts-non-duplicate-flat", flat);
 
     let module_prefixed = Typescript::default()
-        .layout(Layout::ModulePrefixedName)
+        .layout(Layout::module_prefixed())
         .export(&resolved)
         .unwrap();
     insta::assert_snapshot!("layouts-non-duplicate-module-prefixed", module_prefixed);
 
     let namespaces = Typescript::default()
-        .layout(Layout::Namespaces)
+        .namespaces(true)
         .export(&resolved)
         .unwrap();
     insta::assert_snapshot!("layouts-non-duplicate-namespaces", namespaces);
 
     assert_error_contains(
         Typescript::default()
-            .layout(Layout::Files)
+            .layout(Layout::multi_file())
             .export(&resolved),
-        "Unable to export layout Files",
+        "Unable to export layout MultiFile",
     );
 
     let temp = temp_dir();
     let path = temp.path().join("no-duplicate-layout");
     Typescript::default()
-        .layout(Layout::Files)
+        .layout(Layout::multi_file())
         .export_to(&path, &resolved)
         .unwrap();
 
@@ -146,19 +146,19 @@ fn empty_module_path_layouts() {
     let resolved = ResolvedTypes::from_resolved_types(types.clone());
 
     let flat = Typescript::default()
-        .layout(Layout::FlatFile)
+        .layout(Layout::default())
         .export(&resolved)
         .unwrap();
     insta::assert_snapshot!("layouts-empty-module-path-flat", flat);
 
     let module_prefixed = Typescript::default()
-        .layout(Layout::ModulePrefixedName)
+        .layout(Layout::module_prefixed())
         .export(&resolved)
         .unwrap();
     insta::assert_snapshot!("layouts-empty-module-path-module-prefixed", module_prefixed);
 
     let namespaces = Typescript::default()
-        .layout(Layout::Namespaces)
+        .namespaces(true)
         .export(&resolved)
         .unwrap();
     insta::assert_snapshot!("layouts-empty-module-path-namespaces", namespaces);
@@ -166,7 +166,7 @@ fn empty_module_path_layouts() {
     let temp = temp_dir();
     let path = temp.path().join("empty-module-path-layout");
     Typescript::default()
-        .layout(Layout::Files)
+        .layout(Layout::multi_file())
         .export_to(&path, &resolved)
         .unwrap();
 

@@ -117,8 +117,10 @@ mod schema_version;
 
 pub use error::Error;
 pub use json_schema::JsonSchema;
-pub use layout::Layout;
 pub use schema_version::SchemaVersion;
+
+// Re-export unified Layout and shared export infrastructure
+pub use specta::export::{ExportLanguage, Layout, PathResolver};
 
 /// Convert a schemars Schema to a Specta DataType.
 #[deprecated(note = "Use import::from_schema instead")]

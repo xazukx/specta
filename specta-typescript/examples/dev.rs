@@ -60,7 +60,7 @@ fn main() {
     // TODO: Properly handle this with opaque types
     // println!("{:?}", primitives::inline(&Default::default(), &Default::default(), &DataType::String));
 
-    ts.layout(Layout::Namespaces)
+    ts.namespaces(true)
         .export_to(
             "demo.ts",
             &ResolvedTypes::from_resolved_types(Types::default().register::<nested::Another>()),

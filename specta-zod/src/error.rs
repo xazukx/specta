@@ -2,8 +2,6 @@ use std::{borrow::Cow, error, fmt, io, panic::Location, path::PathBuf};
 
 use specta::datatype::OpaqueReference;
 
-use crate::Layout;
-
 /// The error type for the Zod exporter.
 #[non_exhaustive]
 pub struct Error {
@@ -58,7 +56,7 @@ enum ErrorKind {
         message: Cow<'static, str>,
         source: FrameworkSource,
     },
-    UnableToExport(Layout),
+    UnableToExport(String),
 }
 
 impl Error {
@@ -155,9 +153,9 @@ impl Error {
         }
     }
 
-    pub(crate) fn unable_to_export(layout: Layout) -> Self {
+    pub(crate) fn unable_to_export(layout: &specta::export::Layout) -> Self {
         Self {
-            kind: ErrorKind::UnableToExport(layout),
+            kind: ErrorKind::UnableToExport(layout.to_string()),
         }
     }
 }
@@ -248,10 +246,10 @@ impl fmt::Display for Error {
                     write!(f, "Framework error: {message}: {source}")
                 }
             }
-            ErrorKind::UnableToExport(layout) => {
+            ErrorKind::UnableToExport(desc) => {
                 write!(
                     f,
-                    "Unable to export layout {layout} with `Zod::export`. Use `Zod::export_to` or change layout."
+                    "Unable to export layout {desc} with `Zod::export`. Use `Zod::export_to` or change layout."
                 )
             }
         }

@@ -17,6 +17,7 @@ pub mod companion;
 mod constant;
 mod constants;
 pub mod datatype;
+pub mod export;
 #[cfg(feature = "function")]
 #[cfg_attr(docsrs, doc(cfg(feature = "function")))]
 pub mod function;

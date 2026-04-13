@@ -852,9 +852,8 @@ fn reference_named_dt(
 
     crate::references::track_nr(r);
 
-    let schema_name = match exporter.layout {
-        Layout::FlatFile => format!("{}Schema", ndt.name()),
-        Layout::ModulePrefixedName => {
+    let schema_name = match &exporter.layout {
+        Layout::SingleFile(config) if config.module_prefix_names => {
             let mut name = ndt.module_path().split("::").collect::<Vec<_>>().join("_");
             if !name.is_empty() {
                 name.push('_');
@@ -863,7 +862,7 @@ fn reference_named_dt(
             name.push_str("Schema");
             name
         }
-        Layout::Files => {
+        Layout::MultiFile(_) => {
             let current_module_path = crate::references::current_module_path().unwrap_or_default();
             let base = format!("{}Schema", ndt.name());
             if ndt.module_path() == &current_module_path {
@@ -872,6 +871,7 @@ fn reference_named_dt(
                 format!("{}.{}", crate::zod::module_alias(ndt.module_path()), base)
             }
         }
+        _ => format!("{}Schema", ndt.name()),
     };
 
     let should_lazy = TYPE_RENDER_STACK.with(|stack| {
@@ -923,9 +923,8 @@ fn reference_named_dt(
 }
 
 fn exported_type_name(exporter: &Zod, ndt: &NamedDataType) -> Cow<'static, str> {
-    match exporter.layout {
-        Layout::FlatFile | Layout::Files => ndt.name().clone(),
-        Layout::ModulePrefixedName => {
+    match &exporter.layout {
+        Layout::SingleFile(config) if config.module_prefix_names => {
             let mut s = ndt.module_path().split("::").collect::<Vec<_>>().join("_");
             if !s.is_empty() {
                 s.push('_');
@@ -933,6 +932,7 @@ fn exported_type_name(exporter: &Zod, ndt: &NamedDataType) -> Cow<'static, str> 
             s.push_str(ndt.name());
             Cow::Owned(s)
         }
+        _ => ndt.name().clone(),
     }
 }
 

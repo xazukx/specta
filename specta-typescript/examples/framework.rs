@@ -181,18 +181,18 @@ fn main() {
 
         exporter
             .clone()
-            .layout(Layout::ModulePrefixedName)
+            .layout(Layout::module_prefixed())
             .export_to(base.join("framework-prefixed.ts"), &resolved_types)
             .unwrap();
 
         exporter
             .clone()
-            .layout(Layout::Namespaces)
+            .namespaces(true)
             .export_to(base.join("framework-namespaces.ts"), &resolved_types)
             .unwrap();
 
         exporter
-            .layout(Layout::Files)
+            .layout(Layout::multi_file())
             .export_to(base.join("framework-output"), &resolved_types)
             .unwrap();
     }
@@ -202,7 +202,7 @@ fn main() {
 
         exporter
             .clone()
-            .layout(Layout::Files)
+            .layout(Layout::multi_file())
             .export_to(base.join("framework-output-js"), &resolved_types)
             .unwrap();
 
@@ -213,7 +213,7 @@ fn main() {
 
         exporter
             .clone()
-            .layout(Layout::ModulePrefixedName)
+            .layout(Layout::module_prefixed())
             .export_to(base.join("framework-prefixed.js"), &resolved_types)
             .unwrap();
     }

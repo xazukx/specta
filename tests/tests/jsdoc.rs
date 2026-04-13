@@ -282,7 +282,7 @@ fn jsdoc_export_to_files_uses_jsdoc_import_typedefs() {
         .register::<jsdoc_export_to_files_runtime_imports_types::three::Three>();
 
     JSDoc::default()
-        .layout(Layout::Files)
+        .layout(Layout::multi_file())
         .export_to(&path, &ResolvedTypes::from_resolved_types(types))
         .unwrap();
 

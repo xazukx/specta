@@ -123,14 +123,14 @@ fn test_external_ref_override() {
 
 #[test]
 fn test_files_layout_uses_relative_refs() {
-    let js = JsonSchema::default().layout(Layout::Files);
+    let js = JsonSchema::default().layout(Layout::multi_file());
     assert_eq!(js.build_ref("Address"), "./Address.schema.json");
 }
 
 #[test]
 fn test_files_layout_with_base_uri_uses_absolute_refs() {
     let js = JsonSchema::default()
-        .layout(Layout::Files)
+        .layout(Layout::multi_file())
         .base_uri("https://example.com/schemas");
     assert_eq!(
         js.build_ref("Address"),
@@ -200,7 +200,7 @@ fn test_files_layout_cross_references() {
     let resolved = specta_serde::apply(types).unwrap();
 
     let dir = tempfile::tempdir().unwrap();
-    let js = JsonSchema::default().layout(Layout::Files);
+    let js = JsonSchema::default().layout(Layout::multi_file());
     js.export_to(dir.path(), &resolved).unwrap();
 
     // Files are placed under a module subdirectory (the test crate name).
@@ -258,7 +258,7 @@ fn test_files_layout_cross_references_with_base_uri() {
 
     let dir = tempfile::tempdir().unwrap();
     let js = JsonSchema::default()
-        .layout(Layout::Files)
+        .layout(Layout::multi_file())
         .base_uri("https://example.com/schemas");
     js.export_to(dir.path(), &resolved).unwrap();
 

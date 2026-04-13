@@ -4,6 +4,8 @@ use specta::ResolvedTypes;
 
 use crate::{Branded, BrandedTypeExporter, Error, Exporter, Layout};
 
+// Layout is re-exported from specta::export via crate::Layout
+
 /// JSDoc language exporter.
 #[derive(Debug, Clone)]
 #[non_exhaustive]
@@ -52,6 +54,11 @@ impl JSDoc {
     /// instead of returning an error.
     pub fn always_use_number(self, enable: bool) -> Self {
         Self(self.0.always_use_number(enable))
+    }
+
+    /// Enable TypeScript namespace wrapping for single-file output.
+    pub fn namespaces(self, enable: bool) -> Self {
+        Self(self.0.namespaces(enable))
     }
 
     /// Configure how `specta_typescript::branded!` types are rendered.

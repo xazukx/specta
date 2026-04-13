@@ -2,8 +2,6 @@ use std::{borrow::Cow, error, fmt, io, panic::Location, path::PathBuf};
 
 use specta::datatype::OpaqueReference;
 
-use crate::Layout;
-
 use super::legacy::ExportPath;
 
 /// The error type for the TypeScript exporter.
@@ -122,7 +120,7 @@ enum ErrorKind {
     ForbiddenNameLegacy(ExportPath, &'static str),
     InvalidNameLegacy(ExportPath, String),
     FmtLegacy(std::fmt::Error),
-    UnableToExport(Layout),
+    UnableToExport(String),
 }
 
 impl Error {
@@ -234,9 +232,15 @@ impl Error {
         }
     }
 
-    pub(crate) fn unable_to_export(layout: Layout) -> Self {
+    pub(crate) fn unable_to_export(layout: &specta::export::Layout) -> Self {
         Self {
-            kind: ErrorKind::UnableToExport(layout),
+            kind: ErrorKind::UnableToExport(layout.to_string()),
+        }
+    }
+
+    pub(crate) fn unable_to_export_msg(msg: &str) -> Self {
+        Self {
+            kind: ErrorKind::UnableToExport(msg.to_string()),
         }
     }
 }
@@ -340,9 +344,9 @@ impl fmt::Display for Error {
                 "Attempted to export {path:?} but was unable to due to name {name:?} containing an invalid character. Try renaming it or using `#[specta(rename = \"new name\")]`"
             ),
             ErrorKind::FmtLegacy(err) => write!(f, "formatter: {err:?}"),
-            ErrorKind::UnableToExport(layout) => write!(
+            ErrorKind::UnableToExport(desc) => write!(
                 f,
-                "Unable to export layout {layout} with the current configuration. Maybe try `Exporter::export_to` or switching to Typescript."
+                "Unable to export layout {desc} with the current configuration. Maybe try `Exporter::export_to` or switching to Typescript."
             ),
         }
     }

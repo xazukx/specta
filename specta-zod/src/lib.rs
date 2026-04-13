@@ -21,4 +21,10 @@ mod zod;
 pub use error::Error;
 pub use opaque::define;
 pub use types::{Any, Never, Unknown};
-pub use zod::{BigIntExportBehavior, FrameworkExporter, Layout, Zod, ZodVersion};
+pub use zod::{BigIntExportBehavior, FrameworkExporter, Zod, ZodVersion};
+
+// Re-export unified Layout and shared export infrastructure
+pub use specta::export::{
+    ExportLanguage, FolderGrouping, ImportStyle, IndexFileConfig, Layout, MultiFileConfig,
+    PathResolver, SingleFileConfig,
+};
