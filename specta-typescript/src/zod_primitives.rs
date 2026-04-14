@@ -805,7 +805,9 @@ fn reference_opaque_dt(s: &mut String, r: &OpaqueReference) -> Result<(), Error>
         s.push_str(&def.0);
         return Ok(());
     }
-    if r.downcast_ref::<opaque::Any>().is_some() {
+    if r.downcast_ref::<opaque::Any>().is_some()
+        || r.downcast_ref::<specta::datatype::AnyValue>().is_some()
+    {
         s.push_str("z.any()");
         return Ok(());
     }

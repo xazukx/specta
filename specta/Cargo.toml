@@ -41,6 +41,8 @@ function = ["specta-macros?/DO_NOT_USE_function", "dep:paste"]
 #! Compatibility
 ## Support for [serde-json](https://github.com/serde-rs/json)
 serde_json = ["dep:serde_json"]
+## Full enum-based type representation for serde_json::Value (recursive, may cause issues with some exporters)
+serde-json-complex = ["serde_json"]
 ## Support for [serde_yaml](https://github.com/dtolnay/serde-yaml)
 serde_yaml = ["dep:serde_yaml"]
 ## Support for [toml](https://github.com/toml-rs/toml)

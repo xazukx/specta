@@ -158,9 +158,6 @@ fn legacy_impl_individual_bigint_errors() {
         };
     }
 
-    bigint_wrapper!(SerdeJsonMapBigint, serde_json::Map<String, serde_json::Value>);
-    bigint_wrapper!(SerdeJsonValueBigint, serde_json::Value);
-    bigint_wrapper!(SerdeJsonNumberBigint, serde_json::Number);
     bigint_wrapper!(SerdeYamlMappingBigint, serde_yaml::Mapping);
     bigint_wrapper!(SerdeYamlTaggedBigint, serde_yaml::value::TaggedValue);
     bigint_wrapper!(SerdeYamlValueBigint, serde_yaml::Value);
@@ -180,18 +177,6 @@ fn legacy_impl_individual_bigint_errors() {
     let mut failures = Vec::new();
 
     for (name, assert) in [
-        (
-            "serde_json::Map<String, serde_json::Value>",
-            assert_bigint_export_error::<SerdeJsonMapBigint> as fn(&mut Vec<String>, &str),
-        ),
-        (
-            "serde_json::Value",
-            assert_bigint_export_error::<SerdeJsonValueBigint> as fn(&mut Vec<String>, &str),
-        ),
-        (
-            "serde_json::Number",
-            assert_bigint_export_error::<SerdeJsonNumberBigint> as fn(&mut Vec<String>, &str),
-        ),
         (
             "serde_yaml::Mapping",
             assert_bigint_export_error::<SerdeYamlMappingBigint> as fn(&mut Vec<String>, &str),

@@ -26,6 +26,7 @@ pub struct CreateUserRequest {
     pub email: String,
     pub role: Role,
     pub permission: Permission,
+    pub other: Vec<serde_json::Value>,
 }
 
 #[derive(Type, Serialize, Deserialize)]

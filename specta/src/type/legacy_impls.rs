@@ -71,12 +71,30 @@ impl_ndt_as!(
 
 #[cfg(feature = "serde_json")]
 #[cfg_attr(docsrs, doc(cfg(feature = "serde_json")))]
+impl_ndt_as!(
+    serde_json::Map<K, V> as PrimitiveMap<generics::K, generics::V>
+);
+
+#[cfg(all(feature = "serde_json", not(feature = "serde-json-complex")))]
+#[cfg_attr(docsrs, doc(cfg(feature = "serde_json")))]
+const _: () = {
+    impl Type for serde_json::Value {
+        fn definition(_: &mut Types) -> DataType {
+            DataType::Reference(datatype::Reference::opaque(datatype::AnyValue))
+        }
+    }
+
+    impl Type for serde_json::Number {
+        fn definition(_: &mut Types) -> DataType {
+            DataType::Reference(datatype::Reference::opaque(datatype::AnyValue))
+        }
+    }
+};
+
+#[cfg(feature = "serde-json-complex")]
+#[cfg_attr(docsrs, doc(cfg(feature = "serde-json-complex")))]
 const _: () = {
     use serde_json::{Map, Number, Value};
-
-    impl_ndt_as!(
-        serde_json::Map<K, V> as PrimitiveMap<generics::K, generics::V>
-    );
 
     impl_ndt!(
         impl Type for serde_json::Value {

@@ -127,9 +127,15 @@ pub fn datatype_to_schema(
                     Ok(json!({ "$ref": ref_uri }))
                 }
             }
-            Reference::Opaque(_) => Err(Error::UnsupportedDataType(
-                "Opaque references are not supported by JSON Schema exporter".to_string(),
-            )),
+            Reference::Opaque(r) => {
+                if r.downcast_ref::<specta::datatype::AnyValue>().is_some() {
+                    Ok(json!({}))
+                } else {
+                    Err(Error::UnsupportedDataType(
+                        "Opaque references are not supported by JSON Schema exporter".to_string(),
+                    ))
+                }
+            }
             Reference::Generic(g) => {
                 // Try the thread-local generics scope. If not found, emit empty schema.
                 GENERICS_SCOPE.with(|scope| {

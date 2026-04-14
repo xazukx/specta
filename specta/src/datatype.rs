@@ -26,6 +26,15 @@ pub use reference::{GenericReference, NamedReference, OpaqueReference, Reference
 pub use r#struct::Struct;
 pub use tuple::Tuple;
 
+/// Opaque marker representing a dynamically-typed "any" value.
+///
+/// Used as `DataType::Reference(Reference::opaque(AnyValue))` by types like
+/// `serde_json::Value` whose concrete shape is not known at compile time.
+/// Language exporters should map this to their native "any" representation
+/// (e.g. `any` in TypeScript, `z.any()` in Zod, `{}` in JSON Schema).
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+pub struct AnyValue;
+
 pub(crate) use reference::NamedId;
 
 /// Runtime type-erased representation of a Rust type.

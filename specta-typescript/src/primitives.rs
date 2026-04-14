@@ -1529,7 +1529,9 @@ fn reference_opaque_dt(
     if let Some(def) = r.downcast_ref::<opaque::Define>() {
         s.push_str(&def.0);
         return Ok(());
-    } else if r.downcast_ref::<opaque::Any>().is_some() {
+    } else if r.downcast_ref::<opaque::Any>().is_some()
+        || r.downcast_ref::<specta::datatype::AnyValue>().is_some()
+    {
         s.push_str("any");
         return Ok(());
     } else if r.downcast_ref::<opaque::Unknown>().is_some() {
