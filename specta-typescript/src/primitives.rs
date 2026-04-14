@@ -49,7 +49,7 @@ pub(crate) fn export_internal<'a>(
     ndts: impl Iterator<Item = &'a NamedDataType>,
     indent: &str,
 ) -> Result<(), Error> {
-    if exporter.jsdoc {
+    if exporter.mode.is_jsdoc() {
         let mut ndts = ndts.peekable();
         if ndts.peek().is_none() {
             return Ok(());
@@ -90,7 +90,7 @@ fn export_single_internal(
     ndt: &NamedDataType,
     indent: &str,
 ) -> Result<(), Error> {
-    if exporter.jsdoc {
+    if exporter.mode.is_jsdoc() {
         let mut typedef = String::new();
         typedef_internal(&mut typedef, exporter, types, ndt)?;
         for line in typedef.lines() {
@@ -1232,7 +1232,7 @@ fn primitive_dt(
     Ok(match p {
         i8 | i16 | i32 | u8 | u16 | u32 | f16 | f32 | f64 /* this looks wrong but `f64` is the direct equivalent of `number` */ => "number",
         usize | isize | i64 | u64 | i128 | u128 | f128 => {
-            if exporter.always_use_number {
+            if exporter.mode.always_use_number() {
                 "number"
             } else {
                 return Err(Error::bigint_forbidden(location.join(".")));
@@ -1625,7 +1625,7 @@ fn reference_named_dt(
         // We check it's valid before tracking
         crate::references::track_nr(r);
 
-        let name = if exporter.use_namespaces {
+        let name = if exporter.mode.use_namespaces() {
             if ndt.module_path().is_empty() {
                 ndt.name().clone()
             } else {

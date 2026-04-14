@@ -3,7 +3,9 @@ use serde_json::Value;
 use specta::{
     ResolvedTypes, Types,
     datatype::NamedDataType,
-    export::{ExportLanguage, FolderGrouping, ImportInfo, Layout, ModuleRenderResult, PathResolver},
+    export::{
+        ExportLanguage, FolderGrouping, ImportInfo, Layout, ModuleRenderResult, PathResolver,
+    },
 };
 use std::borrow::Cow;
 use std::collections::{BTreeMap, HashMap};
@@ -239,9 +241,7 @@ impl JsonSchema {
                 base_path.to_path_buf()
             } else {
                 match folder_grouping {
-                    FolderGrouping::None => {
-                        base_path.join(module_path_str.replace("::", "/"))
-                    }
+                    FolderGrouping::None => base_path.join(module_path_str.replace("::", "/")),
                     FolderGrouping::ByDepth(depth) => {
                         let segments: Vec<&str> = module_path_str.split("::").collect();
                         let folder_segments = if segments.len() <= *depth {

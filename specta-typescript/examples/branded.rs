@@ -1,7 +1,4 @@
-use specta::{
-    ResolvedTypes, Type, Types,
-    datatype::{DataType, Reference},
-};
+use specta::{ResolvedTypes, Type, Types};
 use specta_typescript::{Typescript, branded};
 
 branded!(#[derive(Default)] struct AccountId(String) as "accountId");

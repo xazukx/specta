@@ -2,7 +2,10 @@ use std::{borrow::Cow, path::Path};
 
 use specta::ResolvedTypes;
 
-use crate::{Branded, BrandedTypeExporter, Error, Exporter, Layout};
+use crate::{
+    Branded, BrandedTypeExporter, Error, Exporter, Layout,
+    exporter::{ExportMode, JSDocConfig},
+};
 
 // Layout is re-exported from specta::export via crate::Layout
 
@@ -14,8 +17,8 @@ pub struct JSDoc(Exporter);
 impl Default for JSDoc {
     fn default() -> Self {
         let mut exporter = Exporter::default();
-        exporter.jsdoc = true;
-        exporter.into()
+        exporter.mode = ExportMode::JSDoc(JSDocConfig::default());
+        Self(exporter)
     }
 }
 
@@ -27,7 +30,9 @@ impl From<JSDoc> for Exporter {
 
 impl From<Exporter> for JSDoc {
     fn from(mut value: Exporter) -> Self {
-        value.jsdoc = true;
+        value.mode = ExportMode::JSDoc(JSDocConfig {
+            always_use_number: value.mode.always_use_number(),
+        });
         Self(value)
     }
 }

@@ -30,7 +30,6 @@ specta-typescript = { version = "=0.0.11", path = "specta-typescript" }
 specta-util = { version = "=0.0.11", path = "specta-util" }
 specta-swift = { version = "=0.0.2", path = "specta-swift" }
 specta-jsonschema = { version = "=0.0.2", path = "specta-jsonschema" }
-specta-zod = { version = "=0.0.2", path = "specta-zod" }
 
 # Serde ecosystem
 serde = { version = "1", features = ["derive"] }

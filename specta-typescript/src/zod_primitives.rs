@@ -1,4 +1,7 @@
-//! Primitives provide building blocks for Specta-based libraries.
+//! Zod schema rendering primitives.
+//!
+//! These mirror the TypeScript primitives but produce Zod schema expressions
+//! (`z.object(...)`, `z.string()`, etc.) instead of TypeScript type declarations.
 
 use std::{borrow::Cow, cell::RefCell, fmt::Write as _};
 
@@ -11,7 +14,9 @@ use specta::{
 };
 
 use crate::{
-    BigIntExportBehavior, Error, Layout, Zod, ZodVersion, opaque,
+    Error, Exporter, Layout,
+    exporter::{BigIntExportBehavior, ZodConfig, ZodVersion},
+    opaque,
     reserved_names::RESERVED_TYPE_NAMES,
 };
 
@@ -87,7 +92,7 @@ fn merged_generics(
 
 /// Generate a group of `export const XSchema = ...` declarations for named types.
 pub fn export<'a>(
-    exporter: &dyn AsRef<Zod>,
+    exporter: &dyn AsRef<Exporter>,
     types: &ResolvedTypes,
     ndts: impl Iterator<Item = &'a NamedDataType>,
     indent: &str,
@@ -99,7 +104,7 @@ pub fn export<'a>(
 
 pub(crate) fn export_internal<'a>(
     s: &mut String,
-    exporter: &Zod,
+    exporter: &Exporter,
     types: &Types,
     ndts: impl Iterator<Item = &'a NamedDataType>,
     indent: &str,
@@ -116,7 +121,7 @@ pub(crate) fn export_internal<'a>(
 
 fn export_single_internal(
     s: &mut String,
-    exporter: &Zod,
+    exporter: &Exporter,
     types: &Types,
     ndt: &NamedDataType,
     indent: &str,
@@ -146,7 +151,7 @@ fn export_single_internal(
         )?;
 
         writeln!(s, "{indent}export const {schema_name} = {schema_expr};")?;
-        if exporter.output_type_infers {
+        if zod_cfg(exporter).output_type_infers {
             writeln!(
                 s,
                 "{indent}export type {base_name} = z.infer<typeof {schema_name}>;"
@@ -185,7 +190,7 @@ fn export_single_internal(
         "{indent}export const {schema_name} = <{generic_params}>({fn_params}) => {schema_expr};"
     )?;
 
-    if exporter.output_type_infers {
+    if zod_cfg(exporter).output_type_infers {
         let alias_params = generic_names.join(", ");
         let infer_args = generic_names
             .iter()
@@ -204,7 +209,7 @@ fn export_single_internal(
 
 /// Generate an inline Zod expression for a [`DataType`].
 pub fn inline(
-    exporter: &dyn AsRef<Zod>,
+    exporter: &dyn AsRef<Exporter>,
     types: &ResolvedTypes,
     dt: &DataType,
 ) -> Result<String, Error> {
@@ -223,7 +228,7 @@ pub fn inline(
 
 /// Generate a Zod expression for a [`Reference`].
 pub fn reference(
-    exporter: &dyn AsRef<Zod>,
+    exporter: &dyn AsRef<Exporter>,
     types: &ResolvedTypes,
     r: &Reference,
 ) -> Result<String, Error> {
@@ -234,7 +239,7 @@ pub fn reference(
 
 pub(crate) fn datatype_with_inline_attr(
     s: &mut String,
-    exporter: &Zod,
+    exporter: &Exporter,
     types: &Types,
     dt: &DataType,
     location: Vec<Cow<'static, str>>,
@@ -246,7 +251,7 @@ pub(crate) fn datatype_with_inline_attr(
 
 fn datatype(
     s: &mut String,
-    exporter: &Zod,
+    exporter: &Exporter,
     types: &Types,
     dt: &DataType,
     location: Vec<Cow<'static, str>>,
@@ -319,15 +324,23 @@ fn constant_zod_dt(s: &mut String, value: &ConstantValue) {
     }
 }
 
+fn zod_cfg(exporter: &Exporter) -> &ZodConfig {
+    exporter
+        .mode
+        .zod_config()
+        .expect("zod_primitives called in non-Zod mode")
+}
+
 fn primitive_dt(
-    exporter: &Zod,
+    exporter: &Exporter,
     p: &Primitive,
     location: Vec<Cow<'static, str>>,
 ) -> Result<&'static str, Error> {
     use Primitive::*;
 
-    let is_v4 = exporter.zod_version == ZodVersion::V4;
-    let b = &exporter.bigint;
+    let cfg = zod_cfg(exporter);
+    let is_v4 = cfg.zod_version == ZodVersion::V4;
+    let b = &cfg.bigint;
 
     Ok(match p {
         i8 | i16 | i32 | u8 | u16 | u32 => {
@@ -357,7 +370,7 @@ fn primitive_dt(
 
 fn list_dt(
     s: &mut String,
-    exporter: &Zod,
+    exporter: &Exporter,
     types: &Types,
     l: &List,
     location: Vec<Cow<'static, str>>,
@@ -384,7 +397,7 @@ fn list_dt(
 
 fn map_dt(
     s: &mut String,
-    exporter: &Zod,
+    exporter: &Exporter,
     types: &Types,
     m: &Map,
     location: Vec<Cow<'static, str>>,
@@ -417,7 +430,7 @@ fn map_dt(
 
 fn tuple_dt(
     s: &mut String,
-    exporter: &Zod,
+    exporter: &Exporter,
     types: &Types,
     t: &Tuple,
     location: Vec<Cow<'static, str>>,
@@ -442,7 +455,7 @@ fn tuple_dt(
 
 fn struct_dt(
     s: &mut String,
-    exporter: &Zod,
+    exporter: &Exporter,
     types: &Types,
     st: &Struct,
     location: Vec<Cow<'static, str>>,
@@ -498,7 +511,7 @@ fn struct_dt(
                 .collect::<Vec<_>>();
 
             if all_fields.is_empty() {
-                match exporter.zod_version {
+                match zod_cfg(exporter).zod_version {
                     ZodVersion::V3 => s.push_str("z.object({}).strict()"),
                     ZodVersion::V4 => s.push_str("z.strictObject({})"),
                 }
@@ -560,7 +573,7 @@ fn struct_dt(
 
 fn enum_dt(
     s: &mut String,
-    exporter: &Zod,
+    exporter: &Exporter,
     types: &Types,
     e: &Enum,
     location: Vec<Cow<'static, str>>,
@@ -573,7 +586,7 @@ fn enum_dt(
         .collect();
 
     // In v4, string-only enums with 2+ unit variants use z.enum(["A", "B"])
-    if exporter.zod_version == ZodVersion::V4
+    if zod_cfg(exporter).zod_version == ZodVersion::V4
         && filtered
             .iter()
             .all(|(_, v)| matches!(v.fields(), Fields::Unit))
@@ -622,7 +635,7 @@ fn enum_dt(
 }
 
 fn enum_variant_dt(
-    exporter: &Zod,
+    exporter: &Exporter,
     types: &Types,
     name: &str,
     variant: &specta::datatype::Variant,
@@ -633,7 +646,7 @@ fn enum_variant_dt(
         Fields::Unit => Ok(Some(format!("z.literal(\"{}\")", escape_string(name)))),
         Fields::Named(named) => {
             if named.fields().iter().all(|(_, field)| field.ty().is_none()) {
-                return Ok(Some(match exporter.zod_version {
+                return Ok(Some(match zod_cfg(exporter).zod_version {
                     ZodVersion::V3 => "z.object({}).strict()".to_string(),
                     ZodVersion::V4 => "z.strictObject({})".to_string(),
                 }));
@@ -757,7 +770,7 @@ fn enum_variant_dt(
 
 fn reference_dt(
     s: &mut String,
-    exporter: &Zod,
+    exporter: &Exporter,
     types: &Types,
     r: &Reference,
     location: Vec<Cow<'static, str>>,
@@ -810,7 +823,7 @@ fn reference_opaque_dt(s: &mut String, r: &OpaqueReference) -> Result<(), Error>
 
 fn reference_named_dt(
     s: &mut String,
-    exporter: &Zod,
+    exporter: &Exporter,
     types: &Types,
     r: &NamedReference,
     location: Vec<Cow<'static, str>>,
@@ -871,7 +884,11 @@ fn reference_named_dt(
                 match config.import_style {
                     specta::export::ImportStyle::Named => base,
                     specta::export::ImportStyle::Namespace => {
-                        format!("{}.{}", crate::zod::module_alias(ndt.module_path()), base)
+                        format!(
+                            "{}.{}",
+                            crate::exporter::module_alias(ndt.module_path()),
+                            base
+                        )
                     }
                 }
             }
@@ -927,7 +944,7 @@ fn reference_named_dt(
     Ok(())
 }
 
-fn exported_type_name(exporter: &Zod, ndt: &NamedDataType) -> Cow<'static, str> {
+fn exported_type_name(exporter: &Exporter, ndt: &NamedDataType) -> Cow<'static, str> {
     match &exporter.layout {
         Layout::SingleFile(config) if config.module_prefix_names => {
             let mut s = ndt.module_path().split("::").collect::<Vec<_>>().join("_");

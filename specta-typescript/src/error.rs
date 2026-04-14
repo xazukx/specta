@@ -54,7 +54,7 @@ enum ErrorKind {
     /// A type's name conflicts with a reserved keyword in Typescript.
     ForbiddenName {
         path: String,
-        name: &'static str,
+        name: Cow<'static, str>,
     },
     /// A type's name contains invalid characters or is not valid.
     InvalidName {
@@ -145,6 +145,15 @@ impl Error {
             kind: ErrorKind::Framework {
                 message: message.into(),
                 source: source.into(),
+            },
+        }
+    }
+
+    pub(crate) fn forbidden_name(path: String, name: impl Into<Cow<'static, str>>) -> Self {
+        Self {
+            kind: ErrorKind::ForbiddenName {
+                path,
+                name: name.into(),
             },
         }
     }

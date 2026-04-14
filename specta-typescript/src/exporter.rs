@@ -13,11 +13,154 @@ use specta::{
     datatype::{DataType, NamedDataType, Reference},
     export::{
         self, ExportLanguage, ImportInfo, IndexFileEntry, Layout, ModuleRenderResult, PathResolver,
-        module_graph::Module,
+        module_graph::Module, topo_sort::topological_sort_types,
     },
 };
 
-use crate::{Branded, Error, constants as const_export, primitives, references};
+use crate::{Branded, Error, constants as const_export, primitives, references, zod_primitives};
+
+/// Target Zod version for generated schemas.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub enum ZodVersion {
+    /// Zod v3 — stable, backward-compatible output.
+    V3,
+    /// Zod v4 — uses `z.strictObject()`, `z.int()`, and other v4-specific APIs.
+    #[default]
+    V4,
+}
+
+/// Configures how the exporter deals with BigInt types ([i64], [i128] etc) in Zod mode.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub enum BigIntExportBehavior {
+    /// Export BigInt as a Zod string schema.
+    String,
+    /// Export BigInt as a Zod number schema.
+    Number,
+    /// Export BigInt as a Zod bigint schema.
+    BigInt,
+    /// Abort export on BigInt usage.
+    #[default]
+    Fail,
+}
+
+/// TypeScript-specific export configuration.
+#[derive(Debug, Clone, Default)]
+pub struct TypescriptConfig {
+    /// When `true`, wrap output in TypeScript namespaces (single-file layouts only).
+    pub use_namespaces: bool,
+    /// When `true`, bigint types are exported as `number` instead of returning an error.
+    pub always_use_number: bool,
+}
+
+/// JSDoc-specific export configuration.
+#[derive(Debug, Clone, Default)]
+pub struct JSDocConfig {
+    /// When `true`, bigint types are exported as `number` instead of returning an error.
+    pub always_use_number: bool,
+}
+
+/// Zod-specific export configuration.
+#[derive(Debug, Clone)]
+pub struct ZodConfig {
+    /// Target Zod version for generated schemas.
+    pub zod_version: ZodVersion,
+    /// Strategy for exporting Rust bigint-compatible primitives.
+    pub bigint: BigIntExportBehavior,
+    /// Whether to export inferred TypeScript types (`export type X = z.infer<...>`).
+    pub output_type_infers: bool,
+}
+
+impl Default for ZodConfig {
+    fn default() -> Self {
+        Self {
+            zod_version: ZodVersion::V4,
+            bigint: BigIntExportBehavior::Fail,
+            output_type_infers: true,
+        }
+    }
+}
+
+/// The export mode determines which language dialect is generated.
+#[derive(Debug, Clone)]
+pub enum ExportMode {
+    /// Standard TypeScript type declarations (`.ts` files).
+    Typescript(TypescriptConfig),
+    /// JSDoc typedef annotations (`.js` files).
+    JSDoc(JSDocConfig),
+    /// Zod schema declarations (`.ts` files).
+    Zod(ZodConfig),
+}
+
+impl Default for ExportMode {
+    fn default() -> Self {
+        Self::Typescript(TypescriptConfig::default())
+    }
+}
+
+impl ExportMode {
+    pub(crate) fn is_jsdoc(&self) -> bool {
+        matches!(self, Self::JSDoc(_))
+    }
+
+    pub(crate) fn is_zod(&self) -> bool {
+        matches!(self, Self::Zod(_))
+    }
+
+    pub(crate) fn file_extension(&self) -> &str {
+        match self {
+            Self::JSDoc(_) => "js",
+            _ => "ts",
+        }
+    }
+
+    pub(crate) fn stale_file_extensions(&self) -> Vec<&str> {
+        match self {
+            Self::Zod(_) => vec!["ts"],
+            _ => vec!["ts", "js"],
+        }
+    }
+
+    pub(crate) fn use_namespaces(&self) -> bool {
+        matches!(self, Self::Typescript(c) if c.use_namespaces)
+    }
+
+    pub(crate) fn always_use_number(&self) -> bool {
+        match self {
+            Self::Typescript(c) => c.always_use_number,
+            Self::JSDoc(c) => c.always_use_number,
+            Self::Zod(_) => false,
+        }
+    }
+
+    pub(crate) fn supports_constants(&self) -> bool {
+        !self.is_zod()
+    }
+
+    /// Returns the `import` keyword appropriate for this mode.
+    /// TypeScript uses `import type` when there are no runtime values.
+    pub(crate) fn import_keyword(&self, has_runtime_values: bool) -> &str {
+        match self {
+            Self::Typescript(_) if !has_runtime_values => "import type",
+            _ => "import",
+        }
+    }
+
+    pub(crate) fn zod_config(&self) -> Option<&ZodConfig> {
+        match self {
+            Self::Zod(c) => Some(c),
+            _ => None,
+        }
+    }
+
+    /// Transform a type name for use in import statements.
+    /// In Zod mode, imported symbols are schemas (e.g. `FooSchema`), not bare type names.
+    pub(crate) fn import_name(&self, base_name: &str) -> String {
+        match self {
+            Self::Zod(_) => format!("{base_name}Schema"),
+            _ => base_name.to_string(),
+        }
+    }
+}
 
 #[derive(Clone)]
 #[allow(clippy::type_complexity)]
@@ -56,16 +199,12 @@ pub struct Exporter {
     framework_prelude: Cow<'static, str>,
     /// Output layout mode for generated TypeScript.
     pub layout: Layout,
-    /// When `true`, wrap output in TypeScript namespaces (single-file layouts only).
-    pub(crate) use_namespaces: bool,
-    pub(crate) jsdoc: bool,
-    /// When `true`, bigint types (`i64`, `u64`, `i128`, `u128`, `isize`, `usize`, `f128`)
-    /// are exported as `number` instead of returning an error.
-    pub(crate) always_use_number: bool,
+    /// The export mode (TypeScript, JSDoc, or Zod).
+    pub(crate) mode: ExportMode,
 }
 
 impl Exporter {
-    // You should get this from either a [Typescript] or [JSDoc], not construct it directly.
+    // You should get this from either a [Typescript], [JSDoc], or [Zod], not construct it directly.
     pub(crate) fn default() -> Exporter {
         Exporter {
             header: Cow::Borrowed(""),
@@ -75,9 +214,7 @@ impl Exporter {
                 "// This file has been generated by Specta. Do not edit this file manually.",
             ),
             layout: Default::default(),
-            use_namespaces: false,
-            jsdoc: false,
-            always_use_number: false,
+            mode: ExportMode::default(),
         }
     }
 
@@ -165,18 +302,24 @@ impl Exporter {
     }
 
     /// Export bigint types (`i64`, `u64`, `i128`, `u128`, `isize`, `usize`, `f128`) as `number`
-    /// instead of returning an error.
+    /// instead of returning an error. Only applies to TypeScript/JSDoc modes.
     pub fn always_use_number(mut self, enable: bool) -> Self {
-        self.always_use_number = enable;
+        match &mut self.mode {
+            ExportMode::Typescript(c) => c.always_use_number = enable,
+            ExportMode::JSDoc(c) => c.always_use_number = enable,
+            ExportMode::Zod(_) => {}
+        }
         self
     }
 
     /// Enable TypeScript namespace wrapping for single-file output.
     ///
     /// When enabled, types are grouped into `namespace` blocks matching their
-    /// Rust module paths. Only applies to `Layout::SingleFile` layouts.
+    /// Rust module paths. Only applies to `Layout::SingleFile` layouts in TypeScript mode.
     pub fn namespaces(mut self, enable: bool) -> Self {
-        self.use_namespaces = enable;
+        if let ExportMode::Typescript(c) = &mut self.mode {
+            c.use_namespaces = enable;
+        }
         self
     }
 
@@ -189,9 +332,9 @@ impl Exporter {
         if matches!(self.layout, Layout::MultiFile(_)) {
             return Err(Error::unable_to_export(&self.layout));
         }
-        if self.use_namespaces && self.jsdoc {
+        if self.mode.use_namespaces() && !matches!(self.mode, ExportMode::Typescript(_)) {
             return Err(Error::unable_to_export_msg(
-                "Namespaces with JSDoc is not supported",
+                "Namespaces are only supported in TypeScript mode",
             ));
         }
 
@@ -223,11 +366,12 @@ impl Exporter {
             render_types(&mut out, self, types, "")?;
         }
 
-        // Constants
-        let constants = resolved_types.constants();
-        if !constants.is_empty() {
-            out.push('\n');
-            const_export::export_constants_internal(&mut out, self, constants)?;
+        if self.mode.supports_constants() {
+            let constants = resolved_types.constants();
+            if !constants.is_empty() {
+                out.push('\n');
+                const_export::export_constants_internal(&mut out, self, constants)?;
+            }
         }
 
         Ok(out)
@@ -308,7 +452,7 @@ impl Exporter {
                         );
                         (
                             ndt.module_path().as_ref().to_string(),
-                            ndt.name().to_string(),
+                            exporter.mode.import_name(ndt.name()),
                             is_value,
                         )
                     })
@@ -337,8 +481,7 @@ impl Exporter {
 
             s.push_str(&rendered_types);
 
-            // Constants belonging to this module
-            if !module.constants.is_empty() {
+            if exporter.mode.supports_constants() && !module.constants.is_empty() {
                 module.constants.sort_by(|a, b| a.name.cmp(&b.name));
                 if !rendered_types.is_empty() {
                     s.push('\n');
@@ -348,12 +491,13 @@ impl Exporter {
                 }
             }
 
-            let has_content = !exports.is_empty() || !module.constants.is_empty();
+            let has_content = !exports.is_empty()
+                || (exporter.mode.supports_constants() && !module.constants.is_empty());
             all_exports.extend(exports);
 
             for (_name, child_module) in &mut module.children {
                 if child_module.types.is_empty()
-                    && child_module.constants.is_empty()
+                    && (!exporter.mode.supports_constants() || child_module.constants.is_empty())
                     && child_module.children.is_empty()
                 {
                     continue;
@@ -401,13 +545,22 @@ impl Exporter {
         let mut files = HashMap::new();
         let mut file_info: HashMap<PathBuf, FileExportInfo> = HashMap::new();
         let mut runtime_path = path.join("index");
-        runtime_path.set_extension(if self.jsdoc { "js" } else { "ts" });
+        runtime_path.set_extension(self.mode.file_extension());
 
         let mut root_types = String::new();
         let mut root_exports = HashMap::new();
-        let mut module_graph = export::build_module_graph(types, resolved_types.constants());
-        // Extract root constants before passing to export_module(); they go into index.ts
-        let root_constants: Vec<_> = std::mem::take(&mut module_graph.constants);
+        let empty_constants = specta::Constants::default();
+        let constants_for_graph = if self.mode.supports_constants() {
+            resolved_types.constants()
+        } else {
+            &empty_constants
+        };
+        let mut module_graph = export::build_module_graph(types, constants_for_graph);
+        let root_constants: Vec<_> = if self.mode.supports_constants() {
+            std::mem::take(&mut module_graph.constants)
+        } else {
+            Vec::new()
+        };
         export_module(
             self,
             types,
@@ -473,7 +626,7 @@ impl Exporter {
                                 );
                                 (
                                     ndt.module_path().as_ref().to_string(),
-                                    ndt.name().to_string(),
+                                    self.mode.import_name(ndt.name()),
                                     is_value,
                                 )
                             })
@@ -554,11 +707,11 @@ impl ExportLanguage for Exporter {
     type Error = Error;
 
     fn file_extension(&self) -> &str {
-        if self.jsdoc { "js" } else { "ts" }
+        self.mode.file_extension()
     }
 
     fn stale_file_extensions(&self) -> Vec<&str> {
-        vec!["ts", "js"]
+        self.mode.stale_file_extensions()
     }
 
     fn index_file_stem(&self) -> Option<&str> {
@@ -600,7 +753,7 @@ impl ExportLanguage for Exporter {
         for r in referenced_types {
             if let Some(ndt) = r.get(types) {
                 let mod_path = ndt.module_path().as_ref().to_string();
-                let type_name = ndt.name().to_string();
+                let type_name = self.mode.import_name(ndt.name());
                 let is_value = matches!(
                     ndt.ty(),
                     DataType::Enum(e) if crate::legacy::is_native_ts_enum(e)
@@ -660,6 +813,9 @@ impl ExportLanguage for Exporter {
     }
 
     fn render_constants(&self, constants: &[&NamedConstant]) -> Result<String, Error> {
+        if !self.mode.supports_constants() {
+            return Ok(String::new());
+        }
         let mut s = String::new();
         for constant in constants {
             const_export::export_constant_internal(&mut s, self, constant)?;
@@ -720,14 +876,20 @@ impl Deref for BrandedTypeExporter<'_> {
 }
 
 impl BrandedTypeExporter<'_> {
-    /// [primitives::inline]
+    /// Inline a single [`DataType`] expression.
     pub fn inline(&self, dt: &DataType) -> Result<String, Error> {
-        primitives::inline(self, self.types, dt)
+        match &self.exporter.mode {
+            ExportMode::Zod(_) => zod_primitives::inline(self, self.types, dt),
+            _ => primitives::inline(self, self.types, dt),
+        }
     }
 
-    /// [primitives::reference]
+    /// Render a [`Reference`] expression.
     pub fn reference(&self, r: &Reference) -> Result<String, Error> {
-        primitives::reference(self, self.types, r)
+        match &self.exporter.mode {
+            ExportMode::Zod(_) => zod_primitives::reference(self, self.types, r),
+            _ => primitives::reference(self, self.types, r),
+        }
     }
 }
 
@@ -778,23 +940,32 @@ impl FrameworkExporter<'_> {
         Ok(Cow::Owned(s))
     }
 
-    /// [primitives::inline]
+    /// Inline a single [`DataType`] expression.
     pub fn inline(&self, dt: &DataType) -> Result<String, Error> {
-        primitives::inline(self, self.types, dt)
+        match &self.exporter.mode {
+            ExportMode::Zod(_) => zod_primitives::inline(self, self.types, dt),
+            _ => primitives::inline(self, self.types, dt),
+        }
     }
 
-    /// [primitives::reference]
+    /// Render a [`Reference`] expression.
     pub fn reference(&self, r: &Reference) -> Result<String, Error> {
-        primitives::reference(self, self.types, r)
+        match &self.exporter.mode {
+            ExportMode::Zod(_) => zod_primitives::reference(self, self.types, r),
+            _ => primitives::reference(self, self.types, r),
+        }
     }
 
-    /// [primitives::export]
+    /// Export a group of [`NamedDataType`] declarations.
     pub fn export<'a>(
         &self,
         ndts: impl Iterator<Item = &'a NamedDataType>,
         indent: &'a str,
     ) -> Result<String, Error> {
-        primitives::export(self, self.types, ndts, indent)
+        match &self.exporter.mode {
+            ExportMode::Zod(_) => zod_primitives::export(self, self.types, ndts, indent),
+            _ => primitives::export(self, self.types, ndts, indent),
+        }
     }
 }
 
@@ -818,7 +989,7 @@ fn render_types(
     types: &Types,
     files_user_types: &str,
 ) -> Result<(), Error> {
-    if exporter.use_namespaces && matches!(exporter.layout, Layout::SingleFile(_)) {
+    if exporter.mode.use_namespaces() && matches!(exporter.layout, Layout::SingleFile(_)) {
         fn has_renderable_content(module: &Module<'_>, types: &Types) -> bool {
             module.types.iter().any(|ndt| ndt.requires_reference(types))
                 || module
@@ -949,7 +1120,15 @@ fn render_flat_types<'a>(
         })
         .collect::<Result<Vec<_>, _>>()?;
 
-    primitives::export_internal(s, exporter, types, ndts.into_iter(), indent)?;
+    match &exporter.mode {
+        ExportMode::Zod(_) => {
+            let ndts = topological_sort_types(ndts, types);
+            zod_primitives::export_internal(s, exporter, types, ndts.into_iter(), indent)?;
+        }
+        _ => {
+            primitives::export_internal(s, exporter, types, ndts.into_iter(), indent)?;
+        }
+    }
 
     Ok(exports)
 }
@@ -978,58 +1157,70 @@ fn module_import_block(
     imports: &BTreeMap<String, ImportInfo>,
     path_resolver: &PathResolver,
 ) -> String {
-    if exporter.jsdoc {
-        let mut out = String::from("/**\n");
-
-        for module_path in imports.keys() {
-            out.push_str(" * @typedef {import(\"");
-            out.push_str(&path_resolver.relative_import_path(from_module_path, module_path));
-            out.push_str("\")} ");
-            out.push_str(&export::module_alias(module_path));
-            out.push('\n');
-        }
-
-        out.push_str(" */");
-        out
-    } else {
-        let import_style = match &exporter.layout {
-            Layout::MultiFile(config) => &config.import_style,
-            _ => &export::ImportStyle::Namespace,
-        };
-
-        imports
-            .iter()
-            .map(|(module_path, info)| {
-                let import_keyword = if exporter.jsdoc || info.has_values {
-                    "import"
-                } else {
-                    "import type"
-                };
-                let rel_path = path_resolver.relative_import_path(from_module_path, module_path);
-
-                match import_style {
-                    export::ImportStyle::Named => {
-                        let names: Vec<_> = info.type_names.iter().cloned().collect();
-                        format!(
-                            "{} {{ {} }} from \"{}\";",
-                            import_keyword,
-                            names.join(", "),
-                            rel_path
-                        )
-                    }
-                    export::ImportStyle::Namespace => {
-                        format!(
-                            "{} * as {} from \"{}\";",
-                            import_keyword,
-                            export::module_alias(module_path),
-                            rel_path
-                        )
-                    }
-                }
-            })
-            .collect::<Vec<_>>()
-            .join("\n")
+    match &exporter.mode {
+        ExportMode::JSDoc(_) => render_jsdoc_imports(from_module_path, imports, path_resolver),
+        _ => render_es_imports(exporter, from_module_path, imports, path_resolver),
     }
+}
+
+/// Render JSDoc `@typedef {import(...)}` comment block.
+fn render_jsdoc_imports(
+    from_module_path: &str,
+    imports: &BTreeMap<String, ImportInfo>,
+    path_resolver: &PathResolver,
+) -> String {
+    let mut out = String::from("/**\n");
+    for module_path in imports.keys() {
+        out.push_str(" * @typedef {import(\"");
+        out.push_str(&path_resolver.relative_import_path(from_module_path, module_path));
+        out.push_str("\")} ");
+        out.push_str(&export::module_alias(module_path));
+        out.push('\n');
+    }
+    out.push_str(" */");
+    out
+}
+
+/// Render ES-style `import` / `import type` statements for TypeScript and Zod.
+fn render_es_imports(
+    exporter: &Exporter,
+    from_module_path: &str,
+    imports: &BTreeMap<String, ImportInfo>,
+    path_resolver: &PathResolver,
+) -> String {
+    let import_style = match &exporter.layout {
+        Layout::MultiFile(config) => &config.import_style,
+        _ => &export::ImportStyle::Namespace,
+    };
+
+    imports
+        .iter()
+        .map(|(module_path, info)| {
+            let keyword = exporter.mode.import_keyword(info.has_values);
+            let rel_path = path_resolver.relative_import_path(from_module_path, module_path);
+
+            match import_style {
+                export::ImportStyle::Named => {
+                    let names: Vec<_> = info.type_names.iter().cloned().collect();
+                    format!(
+                        "{} {{ {} }} from \"{}\";",
+                        keyword,
+                        names.join(", "),
+                        rel_path
+                    )
+                }
+                export::ImportStyle::Namespace => {
+                    format!(
+                        "{} * as {} from \"{}\";",
+                        keyword,
+                        export::module_alias(module_path),
+                        rel_path
+                    )
+                }
+            }
+        })
+        .collect::<Vec<_>>()
+        .join("\n")
 }
 
 /// Information about exported types in a generated file, used for index file generation.

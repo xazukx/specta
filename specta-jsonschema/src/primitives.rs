@@ -263,7 +263,10 @@ fn resolve_generics(dt: &DataType, generics: &[(GenericReference, DataType)]) ->
 
 /// Compute the actual file directory for a module path based on FolderGrouping.
 /// The module path uses `/` separators (already converted from `::`).
-fn module_file_dir(module_path: &str, folder_grouping: &specta::export::FolderGrouping) -> Vec<String> {
+fn module_file_dir(
+    module_path: &str,
+    folder_grouping: &specta::export::FolderGrouping,
+) -> Vec<String> {
     if module_path.is_empty() {
         return vec![];
     }

@@ -2,7 +2,10 @@ use std::{borrow::Cow, path::Path};
 
 use specta::ResolvedTypes;
 
-use crate::{Branded, BrandedTypeExporter, Error, Exporter, Layout};
+use crate::{
+    Branded, BrandedTypeExporter, Error, Exporter, Layout,
+    exporter::{ExportMode, TypescriptConfig},
+};
 
 // Layout is re-exported from specta::export via crate::Layout
 
@@ -25,7 +28,10 @@ impl From<Typescript> for Exporter {
 
 impl From<Exporter> for Typescript {
     fn from(mut value: Exporter) -> Self {
-        value.jsdoc = false;
+        value.mode = ExportMode::Typescript(TypescriptConfig {
+            always_use_number: value.mode.always_use_number(),
+            ..Default::default()
+        });
         Self(value)
     }
 }

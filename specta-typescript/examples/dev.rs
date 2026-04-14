@@ -1,5 +1,5 @@
 use specta::{ResolvedTypes, Type, Types};
-use specta_typescript::{Any, Layout, Typescript, primitives};
+use specta_typescript::{Any, Typescript};
 
 #[derive(Type)]
 pub struct Testing {

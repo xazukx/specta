@@ -30,7 +30,6 @@
 | **Go**          | 🚧 **Planned** | [`specta-go`](https://crates.io/crates/specta-go)                 | Go structs and interfaces                         |
 | **Kotlin**      | 🚧 **Planned** | [`specta-kotlin`](https://crates.io/crates/specta-kotlin)         | Kotlin data classes and sealed classes            |
 | **JSON Schema** | 🚧 **Planned** | [`specta-jsonschema`](https://crates.io/crates/specta-jsonschema) | JSON Schema generation                            |
-| **Zod**         | 🚧 **Planned** | [`specta-zod`](https://crates.io/crates/specta-zod)               | Zod schema validation                             |
 | **Python**      | 🚧 **Planned** | `specta-python`                                                   | Python dataclasses and type hints                 |
 | **C#**          | 🚧 **Planned** | `specta-csharp`                                                   | C# classes and enums                              |
 | **Java**        | 🚧 **Planned** | `specta-java`                                                     | Java POJOs and enums                              |
@@ -75,7 +74,6 @@ cargo add specta_openapi     # OpenAPI/Swagger (partial - primitives)
 # cargo add specta_go          # Go (planned)
 # cargo add specta_kotlin      # Kotlin (planned)
 # cargo add specta_jsonschema  # JSON Schema (planned)
-# cargo add specta_zod         # Zod schemas (planned)
 ```
 
 Then you can use Specta like following:

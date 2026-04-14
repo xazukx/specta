@@ -5,8 +5,9 @@ use specta::{
     ResolvedTypes, Type, Types,
     datatype::{DataType, NamedDataType, Primitive, Reference},
 };
-use specta_typescript::Typescript;
-use specta_zod::{BigIntExportBehavior, Layout, Zod, ZodVersion, primitives};
+use specta_typescript::{
+    BigIntExportBehavior, Layout, Typescript, Zod, ZodVersion, zod_primitives as primitives,
+};
 use tempfile::TempDir;
 
 macro_rules! for_bigint_types {
@@ -106,7 +107,7 @@ mod testing {
     }
 }
 
-fn inline_for<T: Type>(zod: &Zod) -> Result<String, specta_zod::Error> {
+fn inline_for<T: Type>(zod: &Zod) -> Result<String, specta_typescript::Error> {
     let mut types = Types::default();
     let dt = T::definition(&mut types);
     primitives::inline(zod, &ResolvedTypes::from_resolved_types(types), &dt)
@@ -202,7 +203,7 @@ fn zod_bigint_errors_propagate_from_nested_types() {
     ] {
         let err = err.expect_err("bigint export should be rejected by default");
         assert!(
-            err.to_string().contains("forbids exporting BigInt types"),
+            err.to_string().contains("forbids exporting BigInt"),
             "unexpected error: {err}"
         );
     }
@@ -356,33 +357,36 @@ fn zod_layout_files_errors_on_export() {
         .layout(Layout::multi_file())
         .export(&resolved)
         .unwrap_err();
-    assert!(err.to_string().contains("Unable to export layout MultiFile"));
+    assert!(
+        err.to_string()
+            .contains("Unable to export layout MultiFile")
+    );
 }
 
 fn temp_dir() -> TempDir {
     TempDir::new_in(temp_root()).unwrap()
 }
 
-fn export_for<T: Type>() -> Result<String, specta_zod::Error> {
+fn export_for<T: Type>() -> Result<String, specta_typescript::Error> {
     let types = Types::default().register::<T>();
     Zod::default()
         .zod_version(ZodVersion::V3)
         .export(&ResolvedTypes::from_resolved_types(types))
 }
 
-fn export_for_v4<T: Type>() -> Result<String, specta_zod::Error> {
+fn export_for_v4<T: Type>() -> Result<String, specta_typescript::Error> {
     let types = Types::default().register::<T>();
     Zod::default()
         .zod_version(ZodVersion::V4)
         .export(&ResolvedTypes::from_resolved_types(types))
 }
 
-fn inline_for_v4<T: Type>() -> Result<String, specta_zod::Error> {
+fn inline_for_v4<T: Type>() -> Result<String, specta_typescript::Error> {
     let zod = Zod::default().zod_version(ZodVersion::V4);
     inline_for_with::<T>(&zod)
 }
 
-fn inline_for_with<T: Type>(zod: &Zod) -> Result<String, specta_zod::Error> {
+fn inline_for_with<T: Type>(zod: &Zod) -> Result<String, specta_typescript::Error> {
     let mut types = Types::default();
     let dt = T::definition(&mut types);
     primitives::inline(zod, &ResolvedTypes::from_resolved_types(types), &dt)

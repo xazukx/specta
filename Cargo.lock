@@ -771,8 +771,6 @@ dependencies = [
  "specta-macros",
  "specta-serde",
  "specta-typescript",
- "specta-zod",
- "tempfile",
 ]
 
 [[package]]
@@ -2134,7 +2132,6 @@ dependencies = [
  "specta-swift",
  "specta-typescript",
  "specta-util",
- "specta-zod",
  "tempfile",
  "thiserror",
  "toml",
@@ -2158,18 +2155,6 @@ dependencies = [
  "serde",
  "serde_json",
  "specta",
-]
-
-[[package]]
-name = "specta-zod"
-version = "0.0.2"
-dependencies = [
- "serde",
- "specta",
- "specta-serde",
- "specta-typescript",
- "specta-util",
- "thiserror",
 ]
 
 [[package]]

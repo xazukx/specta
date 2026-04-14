@@ -34,7 +34,13 @@ impl PathResolver {
 
         if let Layout::MultiFile(config) = layout {
             let graph = build_module_graph(types, constants);
-            collect_module_paths(&graph, config, file_extension, index_file_stem, &mut module_paths);
+            collect_module_paths(
+                &graph,
+                config,
+                file_extension,
+                index_file_stem,
+                &mut module_paths,
+            );
         }
 
         PathResolver {
@@ -80,18 +86,15 @@ impl PathResolver {
     pub fn relative_import_path(&self, from_module: &str, to_module: &str) -> String {
         // Try using actual file paths first (handles FolderGrouping correctly)
         if let (Some(from_file), Some(to_file)) = (
-            self.module_file_path(from_module)
-                .or_else(|| (from_module.is_empty()).then(|| {
+            self.module_file_path(from_module).or_else(|| {
+                (from_module.is_empty()).then(|| {
                     // Root module maps to the index file
                     std::path::Path::new("index")
-                })),
+                })
+            }),
             self.module_file_path(to_module),
         ) {
-            return relative_file_import_path(
-                from_file,
-                to_file,
-                self.index_file_stem.as_deref(),
-            );
+            return relative_file_import_path(from_file, to_file, self.index_file_stem.as_deref());
         }
         // Fallback to segment-based computation
         relative_import_path(from_module, to_module)
@@ -268,7 +271,10 @@ fn collect_module_paths(
             FolderGrouping::ByDepth(depth) => {
                 let segments: Vec<&str> = module.module_path.split("::").collect();
                 let (folder_segments, file_segments) = if segments.len() <= *depth {
-                    (&segments[..segments.len().saturating_sub(1)], &segments[segments.len().saturating_sub(1)..])
+                    (
+                        &segments[..segments.len().saturating_sub(1)],
+                        &segments[segments.len().saturating_sub(1)..],
+                    )
                 } else {
                     (&segments[..*depth], &segments[*depth..])
                 };

@@ -60,15 +60,21 @@ mod references;
 pub(crate) mod reserved_names;
 mod types;
 mod typescript;
+mod zod;
+pub mod zod_primitives;
 
 pub use branded::Branded;
 pub use error::Error;
-pub use exporter::{BrandedTypeExporter, Exporter, FrameworkExporter};
+pub use exporter::{
+    BigIntExportBehavior, BrandedTypeExporter, ExportMode, Exporter, FrameworkExporter,
+    JSDocConfig, TypescriptConfig, ZodConfig, ZodVersion,
+};
 pub use jsdoc::JSDoc;
 pub use opaque::define;
 pub use references::collect_references;
 pub use types::{Any, Never, Unknown};
 pub use typescript::Typescript;
+pub use zod::Zod;
 
 // Re-export unified Layout and shared export infrastructure
 pub use specta::export::{

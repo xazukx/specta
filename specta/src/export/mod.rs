@@ -163,10 +163,7 @@ pub trait ExportLanguage {
     }
 
     /// Render constants belonging to a module. Default: no-op.
-    fn render_constants(
-        &self,
-        _constants: &[&NamedConstant],
-    ) -> Result<String, Self::Error> {
+    fn render_constants(&self, _constants: &[&NamedConstant]) -> Result<String, Self::Error> {
         Ok(String::new())
     }
 

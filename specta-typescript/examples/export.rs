@@ -1,3 +1,4 @@
+#![allow(deprecated)]
 use specta::{ResolvedTypes, Type};
 use specta_typescript::{JSDoc, Typescript};
 
