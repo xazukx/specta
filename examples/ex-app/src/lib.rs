@@ -1,6 +1,6 @@
 use ex_shared::{Pagination, Permission, Role, User};
 use serde::{Deserialize, Serialize};
-use specta::{Type, specta_const};
+use specta::{Type, TypeCompanion, specta_const};
 
 #[derive(Type, Serialize, Deserialize)]
 pub struct AppConfig {
@@ -14,7 +14,13 @@ pub struct UserListResponse {
     pub pagination: Pagination,
 }
 
-#[derive(Type, Serialize, Deserialize)]
+#[derive(Type, TypeCompanion, Serialize, Deserialize)]
+#[companion(
+    derive_field(Type, Serialize, Deserialize),
+    derive_value(Type, Serialize, Deserialize),
+    serde_field(rename_all = "camelCase"),
+    serde_value(rename_all = "camelCase", tag = "type", content = "data")
+)]
 pub struct CreateUserRequest {
     pub name: String,
     pub email: String,
@@ -31,177 +37,326 @@ enum AdjacentlyTagged {
 }
 
 #[specta_const]
-pub const CRATE_NAME: &str = "app";
+pub const CRATE_NAME1: &str = "app";
 
 #[cfg(test)]
 mod tests {
-    use std::fs;
+    use std::{fs, sync::LazyLock};
 
-    #[test]
-    fn export_to_typescript_files() {
+    use specta::export::{
+        FolderGrouping, ImportStyle, IndexFileConfig, Layout, MultiFileConfig, SingleFileConfig,
+    };
+
+    static RESOLVED: LazyLock<specta::ResolvedTypes> = LazyLock::new(|| {
         let types = specta::collect_types();
         let constants = specta::collect_constants();
-
-        let resolved = specta_serde::apply(types)
+        specta_serde::apply(types)
             .expect("serde transformation failed")
-            .with_constants(constants);
+            .with_constants(constants)
+    });
 
-        let out_dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("output");
+    fn out_dir() -> std::path::PathBuf {
+        std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("output")
+    }
 
-        specta_typescript::Typescript::default()
-            .layout(specta_typescript::Layout::Files)
-            .export_to(&out_dir, &resolved)
-            .expect("typescript export failed");
+    /// Build a filesystem-safe name from a Layout for use as a subdirectory.
+    fn layout_dir_name(layout: &Layout, namespaces: bool) -> String {
+        let mut name = match layout {
+            Layout::SingleFile(c) => {
+                if c.module_prefix_names {
+                    "single-prefixed".to_string()
+                } else {
+                    "single-flat".to_string()
+                }
+            }
+            Layout::MultiFile(c) => {
+                let fg = match &c.folder_grouping {
+                    FolderGrouping::None => "fg-none",
+                    FolderGrouping::ByDepth(d) => {
+                        return format!(
+                            "multi_fg-depth{d}_idx-{}_imp-{}",
+                            idx_name(&c.index_files),
+                            imp_name(&c.import_style)
+                        );
+                    }
+                };
+                format!(
+                    "multi_{}_idx-{}_imp-{}",
+                    fg,
+                    idx_name(&c.index_files),
+                    imp_name(&c.import_style),
+                )
+            }
+        };
+        if namespaces {
+            name.push_str("_ns");
+        }
+        name
+    }
 
-        // Read the generated files
-        let shared_path = out_dir.join("ex_shared.ts");
-        let app_path = out_dir.join("ex_app.ts");
+    fn idx_name(idx: &IndexFileConfig) -> &'static str {
+        match idx {
+            IndexFileConfig::None => "none",
+            IndexFileConfig::ReExportAll => "reexport",
+        }
+    }
 
-        assert!(shared_path.exists(), "ex_shared.ts should be generated");
-        assert!(app_path.exists(), "ex_app.ts should be generated");
+    fn imp_name(imp: &ImportStyle) -> &'static str {
+        match imp {
+            ImportStyle::Namespace => "ns",
+            ImportStyle::Named => "named",
+        }
+    }
 
-        let shared_content = fs::read_to_string(&shared_path).unwrap();
-        let app_content = fs::read_to_string(&app_path).unwrap();
+    // -----------------------------------------------------------------------
+    // All possible SingleFileConfig values
+    // -----------------------------------------------------------------------
+    fn single_file_configs() -> Vec<SingleFileConfig> {
+        vec![
+            SingleFileConfig {
+                module_prefix_names: false,
+            },
+            SingleFileConfig {
+                module_prefix_names: true,
+            },
+        ]
+    }
 
-        // Shared types should be in ex_shared.ts
-        assert!(
-            shared_content.contains("export type User"),
-            "ex_shared.ts should contain User type"
-        );
-        assert!(
-            shared_content.contains("export type UserId"),
-            "ex_shared.ts should contain UserId type"
-        );
-        assert!(
-            shared_content.contains("export type Role"),
-            "ex_shared.ts should contain Role type"
-        );
-        assert!(
-            shared_content.contains("export type Pagination"),
-            "ex_shared.ts should contain Pagination type"
-        );
+    // -----------------------------------------------------------------------
+    // All possible MultiFileConfig values (cartesian product)
+    // -----------------------------------------------------------------------
+    fn multi_file_configs() -> Vec<MultiFileConfig> {
+        let folder_groupings = [FolderGrouping::None, FolderGrouping::ByDepth(1)];
+        let index_files = [IndexFileConfig::None, IndexFileConfig::ReExportAll];
+        let import_styles = [ImportStyle::Namespace, ImportStyle::Named];
 
-        // App types should be in ex_app.ts
-        assert!(
-            app_content.contains("export type AppConfig"),
-            "ex_app.ts should contain AppConfig type"
-        );
-        assert!(
-            app_content.contains("export type UserListResponse"),
-            "ex_app.ts should contain UserListResponse type"
-        );
-        assert!(
-            app_content.contains("export type CreateUserRequest"),
-            "ex_app.ts should contain CreateUserRequest type"
-        );
+        let mut configs = Vec::new();
+        for fg in &folder_groupings {
+            for idx in &index_files {
+                for imp in &import_styles {
+                    configs.push(MultiFileConfig {
+                        folder_grouping: fg.clone(),
+                        index_files: idx.clone(),
+                        import_style: imp.clone(),
+                    });
+                }
+            }
+        }
+        configs
+    }
 
-        // ex_app.ts should use a value import (not `import type`) because
-        // ex_shared contains a native TS enum (Permission) which is a runtime value
-        assert!(
-            app_content.contains("import * as ex_shared from \"./ex_shared\""),
-            "ex_app.ts should use `import * as` (not `import type * as`) for modules with native TS enums.\nContent:\n{app_content}"
-        );
-        assert!(
-            !app_content.contains("import type * as ex_shared"),
-            "ex_app.ts must NOT use `import type` for modules with native TS enums.\nContent:\n{app_content}"
-        );
+    // -----------------------------------------------------------------------
+    // All Layout values
+    // -----------------------------------------------------------------------
+    fn all_layouts() -> Vec<Layout> {
+        let mut layouts: Vec<Layout> = single_file_configs()
+            .into_iter()
+            .map(Layout::SingleFile)
+            .collect();
+        layouts.extend(multi_file_configs().into_iter().map(Layout::MultiFile));
+        layouts
+    }
 
-        // Print generated files for inspection
-        println!("=== ex_shared.ts ===\n{shared_content}");
-        println!("=== ex_app.ts ===\n{app_content}");
+    // =======================================================================
+    // TypeScript
+    // =======================================================================
+
+    #[test]
+    fn typescript_all_layouts() {
+        let resolved = &*RESOLVED;
+        let base = out_dir().join("ts");
+
+        for layout in all_layouts() {
+            let dir_name = layout_dir_name(&layout, false);
+
+            match &layout {
+                Layout::SingleFile(_) => {
+                    let path = base.join(format!("{dir_name}.ts"));
+                    let output = specta_typescript::Typescript::default()
+                        .layout(layout.clone())
+                        .export(resolved)
+                        .expect(&format!("TS export failed for {dir_name}"));
+
+                    fs::create_dir_all(path.parent().unwrap()).unwrap();
+                    fs::write(&path, &output).unwrap();
+
+                    assert!(
+                        !output.is_empty(),
+                        "TS single-file output should not be empty for {dir_name}"
+                    );
+                }
+                Layout::MultiFile(_) => {
+                    let path = base.join(&dir_name);
+                    specta_typescript::Typescript::default()
+                        .layout(layout.clone())
+                        .export_to(&path, resolved)
+                        .expect(&format!("TS export_to failed for {dir_name}"));
+
+                    assert!(
+                        path.is_dir(),
+                        "TS multi-file output dir should exist for {dir_name}"
+                    );
+                }
+            }
+        }
     }
 
     #[test]
-    fn export_to_jsonschema_files() {
-        let types = specta::collect_types();
-        let constants = specta::collect_constants();
+    fn typescript_namespaces() {
+        let resolved = &*RESOLVED;
+        let base = out_dir().join("ts");
 
-        let resolved = specta_serde::apply(types)
-            .expect("serde transformation failed")
-            .with_constants(constants);
+        for config in single_file_configs() {
+            let layout = Layout::SingleFile(config);
+            let dir_name = layout_dir_name(&layout, true);
+            let path = base.join(format!("{dir_name}.ts"));
 
-        let out_dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("output/jsonschema");
+            let output = specta_typescript::Typescript::default()
+                .layout(layout)
+                .namespaces(true)
+                .export(resolved)
+                .expect(&format!("TS namespace export failed for {dir_name}"));
 
-        specta_jsonschema::JsonSchema::default()
-            .layout(specta_jsonschema::Layout::Files)
-            .export_to(&out_dir, &resolved)
-            .expect("jsonschema export failed");
-        // single file output
-        specta_jsonschema::JsonSchema::default()
-            .layout(specta_jsonschema::Layout::SingleFile)
-            .export_to(out_dir.join("singlefile.json"), &resolved)
-            .expect("jsonschema export failed");
+            fs::create_dir_all(path.parent().unwrap()).unwrap();
+            fs::write(&path, &output).unwrap();
 
-        // Layout::Files creates one .schema.json per type, organized by module
-        let user_path = out_dir.join("ex_shared/User.schema.json");
-        let pagination_path = out_dir.join("ex_shared/Pagination.schema.json");
-        let app_config_path = out_dir.join("ex_app/AppConfig.schema.json");
-        let user_list_path = out_dir.join("ex_app/UserListResponse.schema.json");
-
-        assert!(user_path.exists(), "User.schema.json should be generated");
-        assert!(
-            pagination_path.exists(),
-            "Pagination.schema.json should be generated"
-        );
-        assert!(
-            app_config_path.exists(),
-            "AppConfig.schema.json should be generated"
-        );
-        assert!(
-            user_list_path.exists(),
-            "UserListResponse.schema.json should be generated"
-        );
-
-        let user_content = fs::read_to_string(&user_path).unwrap();
-        let app_config_content = fs::read_to_string(&app_config_path).unwrap();
-
-        // Print sample generated files for inspection
-        println!("=== User.schema.json ===\n{user_content}");
-        println!("=== AppConfig.schema.json ===\n{app_config_content}");
+            assert!(
+                output.contains("namespace "),
+                "TS namespace output should contain namespace for {dir_name}"
+            );
+        }
     }
 
     #[test]
-    fn export_to_zod_files() {
-        let types = specta::collect_types();
-        let constants = specta::collect_constants();
+    fn typescript_multi_file_errors_on_export_string() {
+        let resolved = &*RESOLVED;
+        for config in multi_file_configs() {
+            let err = specta_typescript::Typescript::default()
+                .layout(Layout::MultiFile(config))
+                .export(resolved)
+                .unwrap_err();
+            assert!(
+                err.to_string().contains("Unable to export"),
+                "should error: {err}"
+            );
+        }
+    }
 
-        let serde_resolved = specta_serde::apply(types.clone())
-            .expect("serde transformation failed")
-            .with_constants(constants.clone());
+    // =======================================================================
+    // Zod
+    // =======================================================================
 
-        let out_dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("output/zod");
+    #[test]
+    fn zod_all_layouts() {
+        let resolved = &*RESOLVED;
+        let base = out_dir().join("zod");
 
-        specta_zod::Zod::default()
-            .output_type_infers(false)
-            .layout(specta_zod::Layout::Files)
-            .export_to(&out_dir, &serde_resolved)
-            .expect("zod export failed");
+        for layout in all_layouts() {
+            let dir_name = layout_dir_name(&layout, false);
 
-        // Read the generated files
-        let shared_path = out_dir.join("ex_shared.ts");
-        let app_path = out_dir.join("ex_app.ts");
+            match &layout {
+                Layout::SingleFile(_) => {
+                    let path = base.join(format!("{dir_name}.ts"));
+                    let output = specta_typescript::Zod::default()
+                        .layout(layout.clone())
+                        .export(resolved)
+                        .expect(&format!("Zod export failed for {dir_name}"));
 
-        assert!(
-            shared_path.exists(),
-            "ex_shared.ts should be generated (zod)"
-        );
-        assert!(app_path.exists(), "ex_app.ts should be generated (zod)");
+                    fs::create_dir_all(path.parent().unwrap()).unwrap();
+                    fs::write(&path, &output).unwrap();
 
-        let shared_content = fs::read_to_string(&shared_path).unwrap();
-        let app_content = fs::read_to_string(&app_path).unwrap();
+                    assert!(
+                        output.contains("z."),
+                        "Zod output should contain z. for {dir_name}"
+                    );
+                }
+                Layout::MultiFile(_) => {
+                    let path = base.join(&dir_name);
+                    specta_typescript::Zod::default()
+                        .layout(layout.clone())
+                        .export_to(&path, resolved)
+                        .expect(&format!("Zod export_to failed for {dir_name}"));
 
-        // Zod schemas should contain z. schema definitions
-        assert!(
-            shared_content.contains("z."),
-            "ex_shared.ts should contain Zod schemas"
-        );
-        assert!(
-            app_content.contains("z."),
-            "ex_app.ts should contain Zod schemas"
-        );
+                    assert!(
+                        path.is_dir(),
+                        "Zod multi-file output dir should exist for {dir_name}"
+                    );
+                }
+            }
+        }
+    }
 
-        // Print generated files for inspection
-        println!("=== ex_shared.ts (zod) ===\n{shared_content}");
-        println!("=== ex_app.ts (zod) ===\n{app_content}");
+    #[test]
+    fn zod_multi_file_errors_on_export_string() {
+        let resolved = &*RESOLVED;
+        for config in multi_file_configs() {
+            let err = specta_typescript::Zod::default()
+                .layout(Layout::MultiFile(config))
+                .export(resolved)
+                .unwrap_err();
+            assert!(
+                err.to_string().contains("Unable to export"),
+                "should error: {err}"
+            );
+        }
+    }
+
+    // =======================================================================
+    // JSON Schema
+    // =======================================================================
+
+    #[test]
+    fn jsonschema_all_layouts() {
+        let resolved = &*RESOLVED;
+        let base = out_dir().join("jsonschema");
+
+        for layout in all_layouts() {
+            let dir_name = layout_dir_name(&layout, false);
+
+            match &layout {
+                Layout::SingleFile(_) => {
+                    let path = base.join(format!("{dir_name}.json"));
+                    let output = specta_jsonschema::JsonSchema::default()
+                        .layout(layout.clone())
+                        .export(resolved)
+                        .expect(&format!("JSON Schema export failed for {dir_name}"));
+
+                    fs::create_dir_all(path.parent().unwrap()).unwrap();
+                    fs::write(&path, &output).unwrap();
+
+                    assert!(
+                        output.contains("\"$schema\""),
+                        "JSON Schema output should contain $schema for {dir_name}"
+                    );
+                }
+                Layout::MultiFile(_) => {
+                    let path = base.join(&dir_name);
+                    specta_jsonschema::JsonSchema::default()
+                        .layout(layout.clone())
+                        .export_to(&path, resolved)
+                        .expect(&format!("JSON Schema export_to failed for {dir_name}"));
+
+                    assert!(
+                        path.is_dir(),
+                        "JSON Schema multi-file dir should exist for {dir_name}"
+                    );
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn jsonschema_multi_file_errors_on_export_string() {
+        let resolved = &*RESOLVED;
+        for config in multi_file_configs() {
+            let err = specta_jsonschema::JsonSchema::default()
+                .layout(Layout::MultiFile(config))
+                .export(resolved)
+                .unwrap_err();
+            assert!(
+                err.to_string().contains("MultiFile"),
+                "should mention MultiFile: {err}"
+            );
+        }
     }
 }

@@ -1,5 +1,8 @@
+mod script;
 use serde::{Deserialize, Serialize};
 use specta::{Type, specta_const};
+
+use crate::script::SqlScriptSource;
 
 #[derive(Type, Serialize, Deserialize)]
 pub struct UserId(pub u32);
@@ -10,9 +13,10 @@ pub struct User {
     pub name: String,
     pub email: String,
     pub role: Role,
+    pub script: SqlScriptSource,
 }
 
-#[derive(Type, Serialize, Deserialize)]
+#[derive(Type, Serialize, Deserialize, Clone, PartialEq, Eq, Debug)]
 pub enum Role {
     Admin,
     Member,
@@ -26,7 +30,7 @@ pub struct Pagination {
     pub total: u32,
 }
 
-#[derive(Type, Serialize, Deserialize)]
+#[derive(Type, Serialize, Deserialize, Clone, PartialEq, Eq, Debug)]
 #[specta(ts_enum)]
 #[serde(rename_all = "snake_case")]
 pub enum Permission {
@@ -35,4 +39,4 @@ pub enum Permission {
 }
 
 #[specta_const]
-pub const CRATE_NAME: &str = "shared";
+pub const CRATE_NAME2: &str = "shared";
