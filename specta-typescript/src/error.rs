@@ -64,7 +64,7 @@ enum ErrorKind {
     /// Detected multiple items within the same scope with the same name.
     /// Typescript doesn't support this so we error out.
     ///
-    /// Using anything other than [Layout::FlatFile] should make this basically impossible.
+    /// Using anything other than FlatFile should make this basically impossible.
     DuplicateTypeName {
         name: Cow<'static, str>,
         first: String,

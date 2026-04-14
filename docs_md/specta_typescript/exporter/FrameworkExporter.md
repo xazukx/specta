@@ -16,22 +16,22 @@ pub struct FrameworkExporter {
 
 ```rust
 /**
-`render_types` -- Render the types within the [`ResolvedTypes`](specta::ResolvedTypes).
+`render_types` -- Render the types within the [`ResolvedTypes`].
 
 This will only work if used within [`Exporter::framework_runtime`].
 It allows frameworks to intersperse their user types into their runtime code.
 */
 pub fn render_types(self: &mut Self) -> Result<Cow<''static, str>, Error>
 /**
-`inline` -- [primitives::inline]
+`inline` -- Inline a single [`DataType`] expression.
 */
 pub fn inline(self: &Self, dt: &DataType) -> Result<String, Error>
 /**
-`reference` -- [primitives::reference]
+`reference` -- Render a [`Reference`] expression.
 */
 pub fn reference(self: &Self, r: &Reference) -> Result<String, Error>
 /**
-`export` -- [primitives::export]
+`export` -- Export a group of [`NamedDataType`] declarations.
 */
 pub fn export<'a, impl Iterator<Item = &'a NamedDataType>>(self: &Self, ndts: impl , indent: &str) -> Result<String, Error>
 ```

@@ -9,4 +9,5 @@
 - [legacy](legacy/index.md)
 - [types](types/index.md)
 - [typescript](typescript/index.md)
+- [zod](zod/index.md)
 

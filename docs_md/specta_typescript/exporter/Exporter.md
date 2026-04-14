@@ -10,8 +10,9 @@ pub struct Exporter {
 	branded_type_impl: Option<BrandedTypeImpl>,
 	framework_prelude: std::borrow::Cow<''static, str>,
 	/// Output layout mode for generated TypeScript.
-	pub layout: Layout,
-	jsdoc: bool,
+	pub layout: specta::export::Layout,
+	/// The export mode (TypeScript, JSDoc, or Zod).
+	mode: ExportMode,
 }
 ```
 
@@ -26,7 +27,7 @@ pub fn framework_prelude<impl Into<Cow<'static, str>>>(self: Self, prelude: impl
 `framework_runtime` -- Add some custom Typescript or Javascript code that is exported as part of the bindings.
 It's appending to the types file for single-file layouts or put in a root `index.{ts/js}` for multi-file.
 
-The closure is wrapped in [`specta::collect()`] to capture any referenced types.
+The closure is wrapped in [`specta::collect_types()`] to capture any referenced types.
 Ensure you call `T::reference()` within the closure if you want an import to be created.
 */
 pub fn framework_runtime<impl Fn(FrameworkExporter) -> Result<Cow<'static, str>, Error> + Send + Sync + 'static>(self: Self, builder: impl ) -> Self
@@ -83,9 +84,21 @@ pub fn header<impl Into<Cow<'static, str>>>(self: Self, header: impl ) -> Self
 */
 pub fn layout(self: Self, layout: Layout) -> Self
 /**
+`always_use_number` -- Export bigint types (`i64`, `u64`, `i128`, `u128`, `isize`, `usize`, `f128`) as `number`
+instead of returning an error. Only applies to TypeScript/JSDoc modes.
+*/
+pub fn always_use_number(self: Self, enable: bool) -> Self
+/**
+`namespaces` -- Enable TypeScript namespace wrapping for single-file output.
+
+When enabled, types are grouped into `namespace` blocks matching their
+Rust module paths. Only applies to `Layout::SingleFile` layouts in TypeScript mode.
+*/
+pub fn namespaces(self: Self, enable: bool) -> Self
+/**
 `export` -- Export the files into a single string.
 
-Note: This returns an error if the format is `Format::Files`.
+Note: This returns an error if the layout is `Layout::MultiFile`.
 */
 pub fn export(self: &Self, resolved_types: &ResolvedTypes) -> Result<String, Error>
 /**

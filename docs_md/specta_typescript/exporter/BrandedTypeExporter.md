@@ -14,11 +14,11 @@ pub struct BrandedTypeExporter {
 
 ```rust
 /**
-`inline` -- [primitives::inline]
+`inline` -- Inline a single [`DataType`] expression.
 */
 pub fn inline(self: &Self, dt: &DataType) -> Result<String, Error>
 /**
-`reference` -- [primitives::reference]
+`reference` -- Render a [`Reference`] expression.
 */
 pub fn reference(self: &Self, r: &Reference) -> Result<String, Error>
 ```

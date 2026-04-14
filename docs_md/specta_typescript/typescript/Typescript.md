@@ -26,6 +26,15 @@ pub fn header<impl Into<Cow<'static, str>>>(self: Self, header: impl ) -> Self
 */
 pub fn layout(self: Self, layout: Layout) -> Self
 /**
+`always_use_number` -- Export bigint types (`i64`, `u64`, `i128`, `u128`, `isize`, `usize`, `f128`) as `number`
+instead of returning an error.
+*/
+pub fn always_use_number(self: Self, enable: bool) -> Self
+/**
+`namespaces` -- Enable TypeScript namespace wrapping for single-file output.
+*/
+pub fn namespaces(self: Self, enable: bool) -> Self
+/**
 `branded_type_impl` -- Configure how `specta_typescript::branded!` types are rendered.
 
 See [`Exporter::branded_type_impl`] for details.
