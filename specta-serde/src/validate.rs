@@ -522,10 +522,12 @@ fn validate_field_attributes(field: &Field, path: String, mode: ApplyMode) -> Re
     }
 
     if mode == ApplyMode::Unified && serde_attrs.skip_serializing_if.is_some() {
-        return Err(Error::invalid_phased_type_usage(
-            path,
-            "`skip_serializing_if` requires `apply_phases` because unified mode cannot represent conditional omission",
-        ));
+        if !field.optional() {
+            return Err(Error::invalid_phased_type_usage(
+                path,
+                "`skip_serializing_if` requires either an `#[specta(optional)]` attribute or you must use `specta_serde::apply_phases(...)` because unified mode cannot represent conditional omission",
+            ));
+        }
     }
 
     Ok(())

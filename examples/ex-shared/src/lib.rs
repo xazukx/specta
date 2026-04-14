@@ -28,6 +28,9 @@ pub struct Pagination {
     pub page: u32,
     pub per_page: u32,
     pub total: u32,
+    #[specta(optional)]
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub token: Option<String>,
 }
 
 #[derive(Type, Serialize, Deserialize, Clone, PartialEq, Eq, Debug)]
