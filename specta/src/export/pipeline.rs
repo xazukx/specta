@@ -1,5 +1,5 @@
 use std::{
-    collections::{BTreeMap, HashMap},
+    collections::BTreeMap,
     path::{Path, PathBuf},
 };
 
@@ -50,8 +50,8 @@ impl ExportPipeline {
             Layout::MultiFile(config) => {
                 let types = resolved.as_types();
                 let constants = resolved.constants();
-                let mut files: HashMap<PathBuf, String> = HashMap::new();
-                let mut file_info: HashMap<PathBuf, FileExportInfo> = HashMap::new();
+                let mut files: BTreeMap<PathBuf, String> = BTreeMap::new();
+                let mut file_info: BTreeMap<PathBuf, FileExportInfo> = BTreeMap::new();
                 let path_resolver = PathResolver::new(
                     lang.file_extension(),
                     lang.index_file_stem(),
@@ -64,7 +64,7 @@ impl ExportPipeline {
                 let root_constants: Vec<_> = std::mem::take(&mut module_graph.constants);
 
                 let mut root_types = String::new();
-                let mut root_exports = HashMap::new();
+                let mut root_exports = BTreeMap::new();
                 Self::export_module(
                     lang,
                     types,
@@ -218,10 +218,10 @@ impl ExportPipeline {
         types: &Types,
         module: &mut Module<'_>,
         s: &mut String,
-        root_exports: &mut HashMap<String, std::panic::Location<'static>>,
+        root_exports: &mut BTreeMap<String, std::panic::Location<'static>>,
         root_path: &Path,
-        files: &mut HashMap<PathBuf, String>,
-        file_info: &mut HashMap<PathBuf, FileExportInfo>,
+        files: &mut BTreeMap<PathBuf, String>,
+        file_info: &mut BTreeMap<PathBuf, FileExportInfo>,
         path_resolver: &PathResolver,
     ) -> Result<bool, L::Error> {
         module.types.sort_by(|a, b| {
@@ -290,7 +290,7 @@ impl ExportPipeline {
             }
 
             let mut out = lang.render_file_header();
-            let mut child_exports = HashMap::new();
+            let mut child_exports = BTreeMap::new();
 
             let has_types = Self::export_module(
                 lang,
@@ -335,8 +335,8 @@ impl ExportPipeline {
     fn generate_index_files<L: ExportLanguage>(
         lang: &L,
         _root: &Path,
-        file_info: &HashMap<PathBuf, FileExportInfo>,
-        files: &mut HashMap<PathBuf, String>,
+        file_info: &BTreeMap<PathBuf, FileExportInfo>,
+        files: &mut BTreeMap<PathBuf, String>,
         path_resolver: &PathResolver,
     ) -> Result<(), L::Error> {
         use super::IndexFileEntry;

@@ -1,5 +1,5 @@
 use std::{
-    collections::{HashMap, HashSet},
+    collections::{BTreeMap, HashSet},
     io,
     path::{Path, PathBuf},
 };
@@ -80,7 +80,7 @@ pub fn remove_empty_dirs(path: &Path, root: &Path) -> Result<(), io::Error> {
 /// 3. It is not in the `current_files` map
 pub fn cleanup_stale_files(
     root: &Path,
-    current_files: &HashMap<PathBuf, String>,
+    current_files: &BTreeMap<PathBuf, String>,
     extensions: &[&str],
     marker: &str,
 ) -> Result<(), io::Error> {

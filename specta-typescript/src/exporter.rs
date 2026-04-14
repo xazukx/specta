@@ -413,10 +413,10 @@ impl Exporter {
             types: &Types,
             module: &mut Module,
             s: &mut String,
-            all_exports: &mut HashMap<String, Location<'static>>,
+            all_exports: &mut BTreeMap<String, Location<'static>>,
             root_path: &Path,
-            files: &mut HashMap<PathBuf, String>,
-            file_info: &mut HashMap<PathBuf, FileExportInfo>,
+            files: &mut BTreeMap<PathBuf, String>,
+            file_info: &mut BTreeMap<PathBuf, FileExportInfo>,
             path_resolver: &PathResolver,
         ) -> Result<bool, Error> {
             module.types.sort_by(|a, b| {
@@ -504,7 +504,7 @@ impl Exporter {
                 }
 
                 let mut out = render_file_header(exporter)?;
-                let mut child_exports = HashMap::new();
+                let mut child_exports = BTreeMap::new();
 
                 let has_types = export_module(
                     exporter,
@@ -542,13 +542,13 @@ impl Exporter {
             Ok(has_content)
         }
 
-        let mut files = HashMap::new();
-        let mut file_info: HashMap<PathBuf, FileExportInfo> = HashMap::new();
+        let mut files = BTreeMap::new();
+        let mut file_info: BTreeMap<PathBuf, FileExportInfo> = BTreeMap::new();
         let mut runtime_path = path.join("index");
         runtime_path.set_extension(self.mode.file_extension());
 
         let mut root_types = String::new();
-        let mut root_exports = HashMap::new();
+        let mut root_exports = BTreeMap::new();
         let empty_constants = specta::Constants::default();
         let constants_for_graph = if self.mode.supports_constants() {
             resolved_types.constants()
@@ -1233,8 +1233,8 @@ struct FileExportInfo {
 fn generate_index_files(
     exporter: &Exporter,
     _root: &Path,
-    file_info: &HashMap<PathBuf, FileExportInfo>,
-    files: &mut HashMap<PathBuf, String>,
+    file_info: &BTreeMap<PathBuf, FileExportInfo>,
+    files: &mut BTreeMap<PathBuf, String>,
     path_resolver: &PathResolver,
 ) -> Result<(), Error> {
     // Group files by parent directory
