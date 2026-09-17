@@ -51,6 +51,7 @@ mod branded;
 pub mod constants;
 mod error;
 mod exporter;
+mod flatten;
 mod jsdoc;
 mod legacy; // TODO: Remove this
 mod map_keys;

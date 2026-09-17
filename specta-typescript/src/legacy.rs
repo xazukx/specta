@@ -14,7 +14,11 @@ use specta::{
     },
 };
 
-use crate::{Error, Exporter, reserved_names::RESERVED_TYPE_NAMES};
+use crate::{
+    Error, Exporter,
+    flatten::{self, FlattenedPart},
+    reserved_names::RESERVED_TYPE_NAMES,
+};
 
 #[derive(Clone, Debug)]
 pub(crate) enum PathItem {
@@ -227,6 +231,24 @@ pub(crate) fn tuple_datatype(
     }
 }
 
+/// Intersects `base` with the flattened `parts`, expanding the optional ones into a union over
+/// every subset of them that serde can actually produce.
+///
+/// A single optional part renders as `Base & Part | Base`; two independent ones as
+/// `Base & A & B | Base & B | Base & A | Base`. The union is deliberately outermost: TypeScript
+/// binds `&` tighter than `|`, so each intersection branch parses on its own without needing
+/// parentheses that the surrounding renderers wouldn't add.
+fn flattened_intersection(base: Option<String>, parts: &[FlattenedPart]) -> String {
+    flatten::shapes(base.as_deref(), parts)
+        .into_iter()
+        .map(|members| match members[..] {
+            [] => format!("Record<{STRING}, {NEVER}>"),
+            _ => members.join(" & "),
+        })
+        .collect::<Vec<_>>()
+        .join(" | ")
+}
+
 pub(crate) fn struct_datatype(
     ctx: ExportContext,
     _parent_name: Option<&str>,
@@ -271,9 +293,10 @@ pub(crate) fn struct_datatype(
             let (flattened, non_flattened): (Vec<_>, Vec<_>) =
                 fields.iter().partition(|(_, (f, _))| f.flatten());
 
-            let mut flattened_sections = flattened
+            let flattened_parts = flattened
                 .into_iter()
                 .map(|(_key, (field, ty))| {
+                    let (ty, optional) = flatten::peel_nullable(ty);
                     let mut s = String::new();
                     crate::primitives::datatype_with_inline_attr(
                         &mut s,
@@ -286,14 +309,15 @@ pub(crate) fn struct_datatype(
                         generics,
                         field.inline(),
                     )
-                    .map(|_| {
-                        inner_comments(
+                    .map(|_| FlattenedPart {
+                        rendered: inner_comments(
                             field.deprecated(),
                             field.docs(),
                             format!("({s})"),
                             false,
                             prefix,
-                        )
+                        ),
+                        optional,
                     })
                 })
                 .collect::<Result<Vec<_>>>()?;
@@ -340,25 +364,25 @@ pub(crate) fn struct_datatype(
             //     unflattened_fields.push(format!("{tag}: \"{key}\""));
             // }
 
-            if !unflattened_fields.is_empty() {
-                let mut s = "{".to_string();
+            let base = (!unflattened_fields.is_empty()).then(|| {
+                let mut base = "{".to_string();
 
                 for field in unflattened_fields {
-                    s.push('\n');
-                    s.push_str(&field);
-                    s.push(',');
+                    base.push('\n');
+                    base.push_str(&field);
+                    base.push(',');
                 }
 
-                s.push('\n');
-                s.push_str(prefix);
-                s.push('}');
-                flattened_sections.insert(0, s);
-            }
+                base.push('\n');
+                base.push_str(prefix);
+                base.push('}');
+                base
+            });
 
-            // Remove duplicates while preserving source order.
-            let mut seen = BTreeSet::new();
-            flattened_sections.retain(|section| seen.insert(section.clone()));
-            s.push_str(&flattened_sections.join(" & "));
+            s.push_str(&flattened_intersection(
+                base,
+                &flatten::dedup(flattened_parts),
+            ));
         }
     }
 
@@ -386,9 +410,10 @@ fn enum_variant_datatype(
             let (flattened, non_flattened): (Vec<_>, Vec<_>) =
                 all_fields.iter().partition(|(_, (f, _))| f.flatten());
 
-            let field_sections = flattened
+            let flattened_parts = flattened
                 .into_iter()
                 .map(|(_key, (field, ty))| {
+                    let (ty, optional) = flatten::peel_nullable(ty);
                     let mut s = String::new();
                     crate::primitives::datatype_with_inline_attr(
                         &mut s,
@@ -401,14 +426,15 @@ fn enum_variant_datatype(
                         generics,
                         field.inline(),
                     )
-                    .map(|_| {
-                        inner_comments(
+                    .map(|_| FlattenedPart {
+                        rendered: inner_comments(
                             field.deprecated(),
                             field.docs(),
                             format!("({s})"),
                             true,
                             prefix,
-                        )
+                        ),
+                        optional,
                     })
                 })
                 .collect::<Result<Vec<_>>>()?;
@@ -463,15 +489,13 @@ fn enum_variant_datatype(
                     .collect::<Result<Vec<_>>>()?,
             );
 
-            Ok(Some(match (&field_sections[..], &regular_fields[..]) {
+            Ok(Some(match (&flattened_parts[..], &regular_fields[..]) {
                 ([], []) => format!("Record<{STRING}, {NEVER}>").to_string(),
                 ([], fields) => format!("{{ {} }}", fields.join("; ")),
-                (_, []) => field_sections.join(" & "),
-                (_, _) => {
-                    let mut sections = vec![format!("{{ {} }}", regular_fields.join("; "))];
-                    sections.extend(field_sections);
-                    sections.join(" & ")
-                }
+                (parts, fields) => flattened_intersection(
+                    (!fields.is_empty()).then(|| format!("{{ {} }}", fields.join("; "))),
+                    parts,
+                ),
             }))
         }
         Fields::Unnamed(obj) => {

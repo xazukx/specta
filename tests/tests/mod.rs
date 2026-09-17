@@ -22,6 +22,7 @@ mod layouts;
 mod legacy_impls;
 mod references;
 mod serde_conversions;
+mod serde_flatten_option;
 mod serde_identifiers;
 mod serde_other;
 mod swift;

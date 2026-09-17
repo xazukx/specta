@@ -16,6 +16,7 @@ use specta::{
 use crate::{
     Error, Exporter, Layout,
     exporter::{BigIntExportBehavior, ZodConfig, ZodVersion},
+    flatten::{self, FlattenedPart},
     opaque,
     reserved_names::RESERVED_TYPE_NAMES,
 };
@@ -453,6 +454,28 @@ fn tuple_dt(
     Ok(())
 }
 
+/// Intersects the `base` object schema with the flattened `parts` via `.and(...)`, unioning over
+/// every subset of the optional parts that serde can actually produce.
+///
+/// A single optional part renders as `z.union([Base.and(Part), Base])`. `Base` is repeated in each
+/// branch because Zod intersections have no "this half may be missing" form.
+fn flattened_intersection(base: &str, parts: &[FlattenedPart]) -> String {
+    let mut shapes = flatten::shapes(Some(base), parts)
+        .into_iter()
+        .map(|members| {
+            // `A.and(B.and(C))` — Zod's `.and` takes a single schema, so they nest.
+            let mut shape = members.join(".and(");
+            shape.push_str(&")".repeat(members.len() - 1));
+            shape
+        })
+        .collect::<Vec<_>>();
+
+    match shapes.len() {
+        1 => shapes.remove(0),
+        _ => format!("z.union([{}])", shapes.join(", ")),
+    }
+}
+
 fn struct_dt(
     s: &mut String,
     exporter: &Exporter,
@@ -546,8 +569,9 @@ fn struct_dt(
             }
             schema.push_str("})");
 
-            let mut sections = vec![schema];
+            let mut parts = Vec::with_capacity(flattened.len());
             for (_, field, ty) in flattened {
+                let (ty, optional) = flatten::peel_nullable(ty);
                 let mut value = String::new();
                 datatype_with_inline_attr(
                     &mut value,
@@ -558,13 +582,13 @@ fn struct_dt(
                     generics,
                     field.inline(),
                 )?;
-                sections.push(value);
+                parts.push(FlattenedPart {
+                    rendered: value,
+                    optional,
+                });
             }
 
-            s.push_str(&sections.join(".and("));
-            for _ in 1..sections.len() {
-                s.push(')');
-            }
+            s.push_str(&flattened_intersection(&schema, &parts));
         }
     }
 
@@ -654,7 +678,7 @@ fn enum_variant_dt(
 
             let mut schema = String::from("z.object({");
             let mut has_field = false;
-            let mut flattened_sections = Vec::new();
+            let mut flattened_parts = Vec::new();
 
             for (field_name, field) in named.fields() {
                 let Some(ty) = field.ty() else {
@@ -662,6 +686,7 @@ fn enum_variant_dt(
                 };
 
                 if field.flatten() {
+                    let (ty, optional) = flatten::peel_nullable(ty);
                     let mut value = String::new();
                     datatype_with_inline_attr(
                         &mut value,
@@ -672,7 +697,10 @@ fn enum_variant_dt(
                         generics,
                         field.inline(),
                     )?;
-                    flattened_sections.push(value);
+                    flattened_parts.push(FlattenedPart {
+                        rendered: value,
+                        optional,
+                    });
                     continue;
                 }
 
@@ -701,18 +729,11 @@ fn enum_variant_dt(
             }
             schema.push_str("})");
 
-            if flattened_sections.is_empty() {
+            if flattened_parts.is_empty() {
                 return Ok(Some(schema));
             }
 
-            let mut sections = vec![schema];
-            sections.extend(flattened_sections);
-            let mut out = String::new();
-            out.push_str(&sections.join(".and("));
-            for _ in 1..sections.len() {
-                out.push(')');
-            }
-            Ok(Some(out))
+            Ok(Some(flattened_intersection(&schema, &flattened_parts)))
         }
         Fields::Unnamed(unnamed) => {
             let fields = unnamed
