@@ -216,14 +216,20 @@ class Reader {
     if ((flags & ~(FLAG_HAS_KEY_TABLE | FLAG_HAS_VALUE_TABLE)) !== 0) {
       throw new SpectaBinaryError(`unknown header flags ${hex(flags)}`, 3);
     }
-    if (flags & FLAG_HAS_KEY_TABLE) this.keys = this.table();
-    if (flags & FLAG_HAS_VALUE_TABLE) this.values = this.table();
+    if (flags & FLAG_HAS_KEY_TABLE) {
+      this.keys = this.table();
+    }
+    if (flags & FLAG_HAS_VALUE_TABLE) {
+      this.values = this.table();
+    }
   }
 
   table(): string[] {
     const count = this.varLen();
     const strings: string[] = [];
-    for (let i = 0; i < count; i++) strings.push(this.str(this.varLen()));
+    for (let i = 0; i < count; i++) {
+      strings.push(this.str(this.varLen()));
+    }
     return strings;
   }
 
@@ -247,9 +253,13 @@ class Reader {
       }
       const byte = this.view.getUint8(this.pos++);
       // The 5th byte holds bits 28..32, so only its low nibble may be set and it must be the last.
-      if (i === 4 && byte > 0x0f) break;
+      if (i === 4 && byte > 0x0f) {
+        break;
+      }
       value += (byte & 0x7f) * 2 ** (7 * i);
-      if ((byte & 0x80) === 0) return value;
+      if ((byte & 0x80) === 0) {
+        return value;
+      }
     }
     throw new SpectaBinaryError("varint is too long or overflows", at);
   }
@@ -265,10 +275,17 @@ class Reader {
       }
       const byte = this.view.getUint8(this.pos++);
       // The 10th byte holds bit 63, so only its lowest bit may be set and it must be the last.
-      if (i === 9 && byte > 0x01) break;
-      if (i < 7) value += (byte & 0x7f) * 2 ** (7 * i);
-      else big = (big ?? BigInt(value)) + (BigInt(byte & 0x7f) << BigInt(7 * i));
-      if ((byte & 0x80) === 0) return big ?? value;
+      if (i === 9 && byte > 0x01) {
+        break;
+      }
+      if (i < 7) {
+        value += (byte & 0x7f) * 2 ** (7 * i);
+      } else {
+        big = (big ?? BigInt(value)) + (BigInt(byte & 0x7f) << BigInt(7 * i));
+      }
+      if ((byte & 0x80) === 0) {
+        return big ?? value;
+      }
     }
     throw new SpectaBinaryError("varint is too long or overflows", at);
   }
@@ -300,7 +317,9 @@ class Reader {
       let out = "";
       for (let i = start; i < start + len; i++) {
         const byte = this.view.getUint8(i);
-        if (byte > 0x7f) return this.utf8(start, len);
+        if (byte > 0x7f) {
+          return this.utf8(start, len);
+        }
         out += String.fromCharCode(byte);
       }
       return out;
@@ -319,7 +338,9 @@ class Reader {
   key(): string {
     const at = this.pos;
     const n = this.varint();
-    if (this.keys === null) return this.str(this.len(at, n));
+    if (this.keys === null) {
+      return this.str(this.len(at, n));
+    }
     const key = this.keys[n];
     if (key === undefined) {
       throw new SpectaBinaryError(
@@ -374,7 +395,9 @@ class Reader {
         return null;
       case ValueType.Bool: {
         const byte = this.u8();
-        if (byte > 1) throw new SpectaBinaryError(`invalid bool byte ${hex(byte)}`, this.pos - 1);
+        if (byte > 1) {
+          throw new SpectaBinaryError(`invalid bool byte ${hex(byte)}`, this.pos - 1);
+        }
         return byte === 1;
       }
       case ValueType.Int16: {
@@ -426,12 +449,16 @@ class Reader {
     this.need(8);
     const at = this.pos;
     this.pos += 8;
-    if (this.int64 === "bigint") return this.view.getBigInt64(at, true);
+    if (this.int64 === "bigint") {
+      return this.view.getBigInt64(at, true);
+    }
     // `hi * 2^32 + lo` is exact for safe integers and correctly rounded otherwise.
     const lo = this.view.getUint32(at, true);
     const hi = this.view.getInt32(at + 4, true);
     const value = hi * TWO_POW_32 + lo;
-    if (this.int64 === "number" || Number.isSafeInteger(value)) return value;
+    if (this.int64 === "number" || Number.isSafeInteger(value)) {
+      return value;
+    }
     return this.view.getBigInt64(at, true);
   }
 
@@ -446,7 +473,9 @@ class Reader {
     const out: unknown[] = [];
     let i = 0;
     try {
-      for (; i < count; i++) out.push(this.value());
+      for (; i < count; i++) {
+        out.push(this.value());
+      }
     } catch (err) {
       throw prepend(err, `[${i}]`);
     }
@@ -492,7 +521,9 @@ export function encode(value: unknown, options?: EncodeOptions): Uint8Array {
   const writer = new Writer(options?.keyTable ?? true, options?.valueTable ?? true);
   try {
     const root = resolve(value, "");
-    if (root === undefined) throw new SpectaBinaryError("cannot encode undefined");
+    if (root === undefined) {
+      throw new SpectaBinaryError("cannot encode undefined");
+    }
     writer.value(root);
   } catch (err) {
     throw rooted(err);
@@ -507,7 +538,9 @@ export function encode(value: unknown, options?: EncodeOptions): Uint8Array {
 function resolve(value: unknown, key: string | number): unknown {
   if (typeof value === "object" && value !== null && !(value instanceof Uint8Array)) {
     const toJSON = (value as { toJSON?: unknown }).toJSON;
-    if (typeof toJSON === "function") return toJSON.call(value, String(key));
+    if (typeof toJSON === "function") {
+      return toJSON.call(value, String(key));
+    }
   }
   return value;
 }
@@ -552,9 +585,13 @@ class Writer {
   }
 
   ensure(n: number): void {
-    if (this.pos + n <= this.buf.length) return;
+    if (this.pos + n <= this.buf.length) {
+      return;
+    }
     let size = this.buf.length * 2;
-    while (size < this.pos + n) size *= 2;
+    while (size < this.pos + n) {
+      size *= 2;
+    }
     const next = new Uint8Array(size);
     // Copy everything, not just up to `pos`: strings are encoded ahead of their header.
     next.set(this.buf);
@@ -610,17 +647,23 @@ class Writer {
       let i = 0;
       for (; i < str.length; i++) {
         const code = str.charCodeAt(i);
-        if (code > 0x7f) break;
+        if (code > 0x7f) {
+          break;
+        }
         this.buf[start + i] = code;
       }
-      if (i === str.length) return i;
+      if (i === str.length) {
+        return i;
+      }
     }
     return textEncoder.encodeInto(str, this.buf.subarray(start, start + max)).written;
   }
 
   /** Move `len` bytes encoded at `pos + reserve` so they follow a `headerLen`-byte prefix. */
   place(reserve: number, headerLen: number, len: number): void {
-    if (headerLen === reserve) return;
+    if (headerLen === reserve) {
+      return;
+    }
     const start = this.pos + reserve;
     this.buf.copyWithin(this.pos + headerLen, start, start + len);
   }
@@ -662,7 +705,9 @@ class Writer {
       case "string":
         return this.string(value);
       case "object":
-        if (value === null) return this.u8(ValueType.Null);
+        if (value === null) {
+          return this.u8(ValueType.Null);
+        }
         return this.object(value);
       default:
         throw new SpectaBinaryError(`cannot encode ${typeof value}`);
@@ -706,7 +751,9 @@ class Writer {
   }
 
   bigint(value: bigint): void {
-    if (value >= -0x8000_0000n && value <= 0x7fff_ffffn) return this.number(Number(value));
+    if (value >= -0x8000_0000n && value <= 0x7fff_ffffn) {
+      return this.number(Number(value));
+    }
     if (value < I64_MIN || value > I64_MAX) {
       throw new SpectaBinaryError(`bigint ${value} does not fit in i64`);
     }
@@ -732,10 +779,15 @@ class Writer {
     ) {
       throw new SpectaBinaryError(`cannot encode ${value.constructor.name}`);
     }
-    if (this.stack.has(value)) throw new SpectaBinaryError("cannot encode a cyclic structure");
+    if (this.stack.has(value)) {
+      throw new SpectaBinaryError("cannot encode a cyclic structure");
+    }
     this.stack.add(value);
-    if (Array.isArray(value)) this.array(value);
-    else this.record(value as Record<string, unknown>);
+    if (Array.isArray(value)) {
+      this.array(value);
+    } else {
+      this.record(value as Record<string, unknown>);
+    }
     this.stack.delete(value);
   }
 
@@ -745,8 +797,11 @@ class Writer {
     try {
       for (; i < array.length; i++) {
         const item = resolve(array[i], i);
-        if (item === undefined) this.u8(ValueType.Null);
-        else this.value(item);
+        if (item === undefined) {
+          this.u8(ValueType.Null);
+        } else {
+          this.value(item);
+        }
       }
     } catch (err) {
       throw prepend(err, `[${i}]`);
@@ -763,7 +818,9 @@ class Writer {
     try {
       for (key of Object.keys(record)) {
         const item = resolve(record[key], key);
-        if (item === undefined) continue;
+        if (item === undefined) {
+          continue;
+        }
         this.key(key);
         this.value(item);
         count++;
@@ -794,7 +851,9 @@ class Writer {
     let size = 4 + this.pos;
     for (const table of tables) {
       size += varintLen(table.length);
-      for (const s of table) size += varintLen(s.length) + s.length;
+      for (const s of table) {
+        size += varintLen(s.length) + s.length;
+      }
     }
     const out = new Writer(false, false);
     out.buf = new Uint8Array(size);

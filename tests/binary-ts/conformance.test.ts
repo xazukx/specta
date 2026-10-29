@@ -101,7 +101,9 @@ test("encode fixtures for Rust", () => {
 
 test("TS round trip", () => {
   for (const [name, value] of Object.entries(tsFixtures)) {
-    if (name === "date" || name === "user_without_email") continue;
+    if (name === "date" || name === "user_without_email") {
+      continue;
+    }
     for (const { options } of variants) {
       assert.deepStrictEqual(decode(encode(value, options)), value, name);
     }

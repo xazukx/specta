@@ -66,7 +66,9 @@ test("bad header", () => {
 test("unknown tags", () => {
   const known = new Set<number>(Object.values(ValueType));
   for (let tag = 0; tag < 256; tag++) {
-    if (!known.has(tag)) fails(doc(tag.toString(16).padStart(2, "0")), /unknown value type tag/);
+    if (!known.has(tag)) {
+      fails(doc(tag.toString(16).padStart(2, "0")), /unknown value type tag/);
+    }
   }
   // Same message as the Rust reader.
   const err = fails(doc("41 02 00 01"), /unknown value type tag 0x01/);
@@ -170,7 +172,9 @@ test("mutations only ever throw SpectaBinaryError", () => {
   for (const original of samples) {
     for (let i = 0; i < 5_000; i++) {
       const mutated = original.slice();
-      for (let n = next() % 4; n >= 0; n--) mutated[next() % mutated.length] = next() & 0xff;
+      for (let n = next() % 4; n >= 0; n--) {
+        mutated[next() % mutated.length] = next() & 0xff;
+      }
       try {
         decode(mutated);
       } catch (err) {
@@ -237,9 +241,13 @@ test("encode follows JSON.stringify", () => {
   assert.deepEqual(decode(encode({ b: Buffer.from("hi") }), { bytes: "array" }), { b: [104, 105] });
   // An object with more than 255 keys, some of them `undefined`, is patched to the long form.
   const record: Record<string, unknown> = {};
-  for (let i = 0; i < 300; i++) record[`k${i}`] = i % 2 ? undefined : i;
+  for (let i = 0; i < 300; i++) {
+    record[`k${i}`] = i % 2 ? undefined : i;
+  }
   assert.equal(encode(record, { keyTable: false })[4], ValueType.ShortObject);
-  for (let i = 0; i < 300; i++) record[`k${i}`] = i;
+  for (let i = 0; i < 300; i++) {
+    record[`k${i}`] = i;
+  }
   const long = encode(record, { keyTable: false });
   assert.equal(hex(long.subarray(4, 7)), "46 AC 02");
   assert.deepEqual(decode(long), record);
@@ -305,7 +313,9 @@ test("decimals read back exactly", () => {
   };
   const varint = (value: number) => {
     const out: number[] = [];
-    for (; value >= 0x80; value = Math.floor(value / 0x80)) out.push((value % 0x80) | 0x80);
+    for (; value >= 0x80; value = Math.floor(value / 0x80)) {
+      out.push((value % 0x80) | 0x80);
+    }
     return [...out, value];
   };
   for (let i = 0; i < 10_000; i++) {
@@ -319,7 +329,9 @@ test("decimals read back exactly", () => {
 
     // Every number round-trips exactly in at most 9 bytes.
     const float = new Float64Array(new Uint32Array([next(), next()]).buffer)[0]!;
-    if (Number.isNaN(float)) continue;
+    if (Number.isNaN(float)) {
+      continue;
+    }
     const bytes = encode(float);
     assert.ok(bytes.length <= 4 + 9, `${float}`);
     assert.ok(Object.is(decode(bytes), Number.isSafeInteger(float) ? float + 0 : float), `${float}`);
