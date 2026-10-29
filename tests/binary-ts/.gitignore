@@ -1,0 +1,2 @@
+# Written by `cargo test -p specta-tests binary` and by the TS tests.
+fixtures/

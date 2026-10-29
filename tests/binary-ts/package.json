@@ -1,0 +1,9 @@
+{
+  "name": "specta-binary-conformance",
+  "private": true,
+  "type": "module",
+  "description": "Cross-language conformance tests for specta-binary. Fixtures are written by `cargo test -p specta-tests binary`.",
+  "scripts": {
+    "test": "node --test conformance.test.ts hostile.test.ts"
+  }
+}

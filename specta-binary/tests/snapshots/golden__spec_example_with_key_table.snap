@@ -1,0 +1,5 @@
+---
+source: specta-binary/tests/golden.rs
+expression: hex(&bytes)
+---
+53 42 01 01 03 04 6E 61 6D 65 05 65 6D 61 69 6C 03 61 67 65 41 03 00 23 03 41 6E 6E 01 00 02 0A 1E 00 00 00

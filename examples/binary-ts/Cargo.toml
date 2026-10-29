@@ -1,0 +1,14 @@
+[package]
+name = "example-binary-ts"
+version = "0.0.0"
+edition = "2024"
+publish = false
+
+[dependencies]
+specta = { workspace = true, features = ["derive"] }
+specta-typescript.workspace = true
+specta-serde.workspace = true
+specta-binary.workspace = true
+serde = { workspace = true, features = ["derive"] }
+serde_json.workspace = true
+serde_bytes = "0.11"

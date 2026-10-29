@@ -12,6 +12,7 @@ macro_rules! register {
     }};
 }
 
+mod binary;
 mod bound;
 mod companion;
 mod constants;

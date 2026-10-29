@@ -1,0 +1,9 @@
+---
+source: specta-binary/tests/golden.rs
+expression: "cases([(\"unit\", to_vec_with(&E::Unit, &no_table()).expect(\"serialize\")),\n(\"newtype\", to_vec_with(&E::Newtype(1), &no_table()).expect(\"serialize\")),\n(\"tuple\", to_vec_with(&E::Tuple(1, 2), &no_table()).expect(\"serialize\")),\n(\"struct\", to_vec_with(&E::Struct { x: 1 }, &no_table()).expect(\"serialize\")),\n(\"struct (key table)\", ser(&E::Struct { x: 1 })),])"
+---
+unit                         53 42 01 00 | 23 04 55 6E 69 74 (10 bytes)
+newtype                      53 42 01 00 | 41 01 07 4E 65 77 74 79 70 65 0A 01 … (19 bytes)
+tuple                        53 42 01 00 | 41 01 05 54 75 70 6C 65 37 02 0A 01 … (24 bytes)
+struct                       53 42 01 00 | 41 01 06 53 74 72 75 63 74 41 01 01 … (22 bytes)
+struct (key table)           53 42 01 01 | 41 01 00 41 01 01 0A 01 00 00 00 (25 bytes)

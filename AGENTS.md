@@ -8,6 +8,7 @@ specta/
 ├── specta-swift/        # Swift exporter  (stable)
 ├── specta-openapi/      # OpenAPI (partial)
 ├── specta-serde/        # Serde utilities
+├── specta-binary/       # Binary serde format (SPB) + TypeScript runtime. See specta-binary/SPEC.md
 ├── specta-util/         # Utilities for end-users. Less semver guarantees.
 ├── tests/               # Integration tests
 ├── Cargo.toml           # Workspace manifest

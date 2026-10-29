@@ -796,6 +796,19 @@ dependencies = [
 ]
 
 [[package]]
+name = "example-binary-ts"
+version = "0.0.0"
+dependencies = [
+ "serde",
+ "serde_bytes",
+ "serde_json",
+ "specta",
+ "specta-binary",
+ "specta-serde",
+ "specta-typescript",
+]
+
+[[package]]
 name = "example-collect-ts"
 version = "0.0.0"
 dependencies = [
@@ -2028,6 +2041,17 @@ dependencies = [
 ]
 
 [[package]]
+name = "specta-binary"
+version = "0.0.1"
+dependencies = [
+ "insta",
+ "serde",
+ "serde_bytes",
+ "serde_json",
+ "thiserror",
+]
+
+[[package]]
 name = "specta-go"
 version = "0.0.2"
 dependencies = [
@@ -2124,11 +2148,13 @@ dependencies = [
  "ordered-float",
  "semver",
  "serde",
+ "serde_bytes",
  "serde_json",
  "serde_yaml",
  "smallvec",
  "smol_str 0.3.6",
  "specta",
+ "specta-binary",
  "specta-serde",
  "specta-swift",
  "specta-typescript",
