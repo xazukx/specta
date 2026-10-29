@@ -6,8 +6,11 @@ pub const MAGIC: [u8; 2] = *b"SB";
 pub const VERSION: u8 = 0x01;
 /// Header flag: a key table follows the header and object keys are key ids.
 pub const FLAG_HAS_KEY_TABLE: u8 = 0b0000_0001;
+/// Header flag: a value table follows the header (after the key table, if any), and
+/// `InternedString` values are ids into it.
+pub const FLAG_HAS_VALUE_TABLE: u8 = 0b0000_0010;
 /// Every header flag this version understands. Any other bit set is an error.
-pub const KNOWN_FLAGS: u8 = FLAG_HAS_KEY_TABLE;
+pub const KNOWN_FLAGS: u8 = FLAG_HAS_KEY_TABLE | FLAG_HAS_VALUE_TABLE;
 
 /// The largest length or count that uses the short (1-byte length) tag variants.
 pub(crate) const SHORT_MAX: usize = u8::MAX as usize;
@@ -20,31 +23,35 @@ pub(crate) const SHORT_MAX: usize = u8::MAX as usize;
 pub enum ValueType {
     Null = 0,
     Bool = 5,
-    Int32 = 10,
-    Int64 = 15,
-    Float32 = 20,
-    Float64 = 25,
-    StringUtf8 = 30,
-    ShortStringUtf8 = 35,
-    ByteArray = 40,
-    ShortByteArray = 45,
-    Array = 50,
-    ShortArray = 55,
-    Object = 60,
-    ShortObject = 65,
+    Int16 = 10,
+    Int32 = 15,
+    Int64 = 20,
+    Decimal = 25,
+    Float64 = 30,
+    StringUtf8 = 35,
+    ShortStringUtf8 = 40,
+    InternedString = 45,
+    ByteArray = 50,
+    ShortByteArray = 55,
+    Array = 60,
+    ShortArray = 65,
+    Object = 70,
+    ShortObject = 75,
 }
 
 impl ValueType {
     /// Every tag, in ascending order.
-    pub const ALL: [ValueType; 14] = [
+    pub const ALL: [ValueType; 16] = [
         Self::Null,
         Self::Bool,
+        Self::Int16,
         Self::Int32,
         Self::Int64,
-        Self::Float32,
+        Self::Decimal,
         Self::Float64,
         Self::StringUtf8,
         Self::ShortStringUtf8,
+        Self::InternedString,
         Self::ByteArray,
         Self::ShortByteArray,
         Self::Array,
@@ -66,12 +73,14 @@ impl ValueType {
         match self {
             Self::Null => "Null",
             Self::Bool => "Bool",
+            Self::Int16 => "Int16",
             Self::Int32 => "Int32",
             Self::Int64 => "Int64",
-            Self::Float32 => "Float32",
+            Self::Decimal => "Decimal",
             Self::Float64 => "Float64",
             Self::StringUtf8 => "StringUtf8",
             Self::ShortStringUtf8 => "ShortStringUtf8",
+            Self::InternedString => "InternedString",
             Self::ByteArray => "ByteArray",
             Self::ShortByteArray => "ShortByteArray",
             Self::Array => "Array",
@@ -90,18 +99,20 @@ impl TryFrom<u8> for ValueType {
         Ok(match byte {
             0 => Self::Null,
             5 => Self::Bool,
-            10 => Self::Int32,
-            15 => Self::Int64,
-            20 => Self::Float32,
-            25 => Self::Float64,
-            30 => Self::StringUtf8,
-            35 => Self::ShortStringUtf8,
-            40 => Self::ByteArray,
-            45 => Self::ShortByteArray,
-            50 => Self::Array,
-            55 => Self::ShortArray,
-            60 => Self::Object,
-            65 => Self::ShortObject,
+            10 => Self::Int16,
+            15 => Self::Int32,
+            20 => Self::Int64,
+            25 => Self::Decimal,
+            30 => Self::Float64,
+            35 => Self::StringUtf8,
+            40 => Self::ShortStringUtf8,
+            45 => Self::InternedString,
+            50 => Self::ByteArray,
+            55 => Self::ShortByteArray,
+            60 => Self::Array,
+            65 => Self::ShortArray,
+            70 => Self::Object,
+            75 => Self::ShortObject,
             _ => return Err(byte),
         })
     }

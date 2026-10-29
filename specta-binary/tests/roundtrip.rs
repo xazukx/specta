@@ -1,4 +1,5 @@
-//! `from_slice(to_vec(x)) == x` across the serde data model, with the key table on and off.
+//! `from_slice(to_vec(x)) == x` across the serde data model, with the key and value tables
+//! on and off.
 
 use std::{
     borrow::Cow,
@@ -10,15 +11,21 @@ use serde::{Deserialize, Deserializer, Serialize, de::DeserializeOwned};
 use serde_json::json;
 use specta_binary::{Config, from_slice, to_vec_with};
 
-fn configs() -> [Config; 2] {
-    [Config::new(), Config::new().key_table(false)]
+/// Every combination of key and value tables.
+fn configs() -> [Config; 4] {
+    [(true, true), (false, true), (true, false), (false, false)]
+        .map(|(keys, values)| Config::new().key_table(keys).value_table(values))
 }
 
-/// Round-trip `value` with the key table on and off, and check both documents decode to the
+/// Round-trip `value` with every table combination, and check the documents decode to the
 /// same thing as each other and as `serde_json` (the "same shape as JSON" principle).
 fn round_trip<T: Serialize + DeserializeOwned + PartialEq + Debug>(value: &T) {
     round_trip_binary(value);
-    let json = serde_json::to_value(value).expect("serde_json serialize");
+    // Through a string, not `serde_json::to_value`, which widens an `f32` to the exact `f64`
+    // instead of writing its shortest decimal like `to_string` (and `Decimal`) do.
+    let json: serde_json::Value =
+        serde_json::from_str(&serde_json::to_string(value).expect("serde_json serialize"))
+            .expect("serde_json deserialize");
     for config in configs() {
         let bytes = to_vec_with(value, &config).expect("serialize");
         let decoded: serde_json::Value = from_slice(&bytes).expect("deserialize as Value");
@@ -29,13 +36,11 @@ fn round_trip<T: Serialize + DeserializeOwned + PartialEq + Debug>(value: &T) {
 /// Like [`round_trip`], for types whose JSON shape can't be compared through
 /// `serde_json::Value` (it can't hold raw bytes).
 fn round_trip_binary<T: Serialize + DeserializeOwned + PartialEq + Debug>(value: &T) {
-    let [with_table, without_table] = configs().map(|config| {
+    for config in configs() {
         let bytes = to_vec_with(value, &config).expect("serialize");
         let back: T = from_slice(&bytes).expect("deserialize");
         assert_eq!(&back, value, "round trip with {config:?}");
-        back
-    });
-    assert_eq!(with_table, without_table);
+    }
 }
 
 #[derive(Debug, PartialEq, Serialize, Deserialize)]
@@ -81,6 +86,7 @@ fn structs() {
 
 #[test]
 fn large_collections_use_long_forms() {
+    // More than 127 distinct strings, so value ids take 2-byte varints.
     round_trip(&(0..300).map(user).collect::<Vec<_>>());
     round_trip(&"é".repeat(1000));
     round_trip(
@@ -285,12 +291,21 @@ struct Id(u32);
 
 #[test]
 fn maps() {
-    round_trip(&HashMap::from([(1u32, user(1)), (2, user(2)), (300, user(3))]));
+    round_trip(&HashMap::from([
+        (1u32, user(1)),
+        (2, user(2)),
+        (300, user(3)),
+    ]));
     round_trip(&BTreeMap::from([
         ("a".to_string(), vec![1]),
         ("b".into(), vec![]),
     ]));
-    round_trip(&BTreeMap::from([(-5i64, "neg"), (i64::MAX, "max")]).into_iter().map(|(k, v)| (k, v.to_string())).collect::<BTreeMap<_, _>>());
+    round_trip(
+        &BTreeMap::from([(-5i64, "neg"), (i64::MAX, "max")])
+            .into_iter()
+            .map(|(k, v)| (k, v.to_string()))
+            .collect::<BTreeMap<_, _>>(),
+    );
     round_trip(&BTreeMap::from([(true, 1), (false, 0)]));
     round_trip(&BTreeMap::from([('x', 1), ('é', 2)]));
     round_trip(&BTreeMap::from([(Color::Red, 1), (Color::Green, 2)]));
@@ -349,10 +364,38 @@ fn scalars() {
     // Like JSON, `Some(())` is `null`, which reads back as `None`.
     round_trip(&Some(5u8));
 
-    let nan: f64 = from_slice(&specta_binary::to_vec(&f64::NAN).expect("serialize")).expect("deserialize");
+    let nan: f64 =
+        from_slice(&specta_binary::to_vec(&f64::NAN).expect("serialize")).expect("deserialize");
     assert!(nan.is_nan());
-    let neg_zero: f64 = from_slice(&specta_binary::to_vec(&-0.0f64).expect("serialize")).expect("deserialize");
+    let neg_zero: f64 =
+        from_slice(&specta_binary::to_vec(&-0.0f64).expect("serialize")).expect("deserialize");
     assert!(neg_zero == 0.0 && neg_zero.is_sign_negative());
+}
+
+/// `Decimal` text must read back as exactly the same `f32` or `f64`, for every bit pattern.
+#[test]
+fn floats_round_trip_exactly() {
+    let mut state = 0x2545_F491_4F6C_DD1Du64;
+    let mut next = move || {
+        state ^= state << 13;
+        state ^= state >> 7;
+        state ^= state << 17;
+        state
+    };
+    for _ in 0..100_000 {
+        let bits = next();
+        let (f64_value, f32_value) = (f64::from_bits(bits), f32::from_bits(bits as u32));
+        let bytes = specta_binary::to_vec(&(f64_value, f32_value)).expect("serialize");
+        // A float never takes more than the 9 bytes of a `Float64`.
+        assert!(bytes.len() <= 4 + 2 + 2 * 9, "{f64_value:e} {f32_value:e}");
+        let (f64_back, f32_back): (f64, f32) = from_slice(&bytes).expect("deserialize");
+        if !f64_value.is_nan() {
+            assert_eq!(f64_back.to_bits(), f64_value.to_bits(), "{f64_value:e}");
+        }
+        if !f32_value.is_nan() {
+            assert_eq!(f32_back.to_bits(), f32_value.to_bits(), "{f32_value:e}");
+        }
+    }
 }
 
 #[test]

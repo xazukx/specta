@@ -1,9 +1,9 @@
 //! Cross-language conformance between `specta-binary` and its TypeScript runtime.
 //!
-//! Rust writes each fixture to `tests/binary-ts/fixtures` as `<name>.bin` (key table on),
-//! `<name>.nokeys.bin` (key table off) and `<name>.json` (from `serde_json`). The TS tests
-//! (run with `node --test`) check that `decode` matches `JSON.parse` of the JSON, that
-//! re-encoding gives identical bytes, and write their own `fixtures/ts/*.bin` for Rust to decode.
+//! Rust writes each fixture to `tests/binary-ts/fixtures` once per table combination (see
+//! [`VARIANTS`]) and as `<name>.json` (from `serde_json`). The TS tests (run with `node --test`)
+//! check that `decode` matches `JSON.parse` of the JSON, that re-encoding gives identical bytes,
+//! and write their own `fixtures/ts/*.bin` for Rust to decode.
 //! Everything is skipped when `node` is not on `PATH`.
 
 use std::{
@@ -22,6 +22,15 @@ use specta_binary::{Config, from_slice, to_vec_with};
 fn project_dir() -> PathBuf {
     Path::new(env!("CARGO_MANIFEST_DIR")).join("binary-ts")
 }
+
+/// The file suffix for each combination of key table and value table. `conformance.test.ts`
+/// has the same list.
+const VARIANTS: [(&str, bool, bool); 4] = [
+    ("bin", true, true),
+    ("keys.bin", true, false),
+    ("values.bin", false, true),
+    ("plain.bin", false, false),
+];
 
 #[derive(Debug, PartialEq, Serialize, Deserialize)]
 struct User {
@@ -130,10 +139,8 @@ struct Fixtures {
 
 impl Fixtures {
     fn add<T: Serialize>(&mut self, name: &'static str, value: &T) -> &mut Fixture {
-        for (config, suffix) in [
-            (Config::new(), "bin"),
-            (Config::new().key_table(false), "nokeys.bin"),
-        ] {
+        for (suffix, keys, values) in VARIANTS {
+            let config = Config::new().key_table(keys).value_table(values);
             let bytes = to_vec_with(value, &config).expect("serialize fixture");
             fs::write(self.dir.join(format!("{name}.{suffix}")), bytes).expect("write fixture");
         }
@@ -187,19 +194,49 @@ fn write_fixtures(dir: &Path) {
     fixtures
         .add(
             "unsafe_integers",
-            &(i64::MIN, i64::MAX, 1i64 << 53, i64::MAX as u64, -(1i64 << 60), i128::from(i64::MIN) / 2),
+            &(
+                i64::MIN,
+                i64::MAX,
+                1i64 << 53,
+                i64::MAX as u64,
+                -(1i64 << 60),
+                i128::from(i64::MIN) / 2,
+            ),
         )
         .decode = json!({ "int64": "number" });
-    fixtures.add("floats", &[1.5, -0.25, 1e300, 5e-324, 0.1, f64::MAX]);
+    fixtures.add(
+        "floats",
+        &[
+            1.5,
+            -0.25,
+            1e300,
+            5e-324,
+            0.1,
+            0.1 + 0.2,
+            f64::MAX,
+            1e21,
+            1e-7,
+            123_456.789,
+            1e20,
+        ],
+    );
     // Integral floats and `-0.0` come back from JS as integers.
-    fixtures.add("integral_floats", &[2.0, -0.0, 1e20]).reencode = false;
-    // JS re-encodes every float as `Float64`.
     fixtures
-        .add(
-            "f32",
-            &[0.1f32, 1.2345, 1e-7, f32::MAX, 16_777_216.0, -0.0, 0.3],
-        )
+        .add("integral_floats", &[2.0, -0.0, 16_777_216.0])
         .reencode = false;
+    // A `Decimal` holds the shortest mantissa for the `f32`, so JS reads `0.1f32` as `0.1` and
+    // writes the same decimal back.
+    fixtures.add("f32", &[0.1f32, 1.2345, 1e-7, f32::MAX, 0.3, -2.5e-40]);
+    fixtures.add("random_floats", &random_floats());
+    fixtures.add(
+        "repeated_strings",
+        &(
+            ["a", "b", "a", "", ""],
+            [Color::Red, Color::Green, Color::Red],
+            BTreeMap::from([("Red", "Red"), ("a", "b")]),
+            "b",
+        ),
+    );
     fixtures.add(
         "external_enum",
         &[
@@ -318,7 +355,16 @@ fn write_fixtures(dir: &Path) {
     );
     fixtures.add(
         "scalars",
-        &('x', '🦀', (), Unit, None::<u8>, Some(5u8), i128::from(i32::MIN) * 1000, false),
+        &(
+            'x',
+            '🦀',
+            (),
+            Unit,
+            None::<u8>,
+            Some(5u8),
+            i128::from(i32::MIN) * 1000,
+            false,
+        ),
     );
     fixtures.add(
         "empty",
@@ -338,6 +384,45 @@ fn write_fixtures(dir: &Path) {
 
     let manifest = serde_json::to_string_pretty(&fixtures.manifest).expect("manifest");
     fs::write(dir.join("manifest.json"), manifest).expect("write manifest");
+}
+
+/// Random floats, so JS and Rust must agree on when to write a `Decimal` and on its mantissa.
+/// Leaves out values JS writes differently: `NaN`, `±Infinity` (JSON can't hold them) and
+/// floats that are safe integers, which JS writes as integers.
+fn random_floats() -> (Vec<f64>, Vec<f32>) {
+    let mut state = 0x9E37_79B9_7F4A_7C15u64;
+    let mut next = move || {
+        state ^= state << 13;
+        state ^= state >> 7;
+        state ^= state << 17;
+        state
+    };
+    let keep =
+        |value: f64| value.is_finite() && !(value.fract() == 0.0 && value.abs() < 2f64.powi(53));
+    // Random bit patterns mostly need 17 digits, so they are written as `Float64`.
+    let mut f64s = (0..2_000)
+        .map(|_| f64::from_bits(next()))
+        .collect::<Vec<_>>();
+    // Values between 2^40 and 2^53 with a fractional part, where two shortest mantissas can tie.
+    f64s.extend((0..2_000).map(|_| {
+        let exponent = 1023 + 40 + next() % 13;
+        f64::from_bits((next() & 0x800F_FFFF_FFFF_FFFF) | (exponent << 52))
+    }));
+    // Decimals of 1 to 17 digits, around the 9-byte limit between `Decimal` and `Float64`.
+    f64s.extend((0..4_000).map(|_| {
+        let digits = 1 + next() % 17;
+        let mantissa = next() % 10u64.pow(digits as u32);
+        let exponent = (next() % 61) as i32 - 30 - digits as i32;
+        format!("{mantissa}e{exponent}")
+            .parse::<f64>()
+            .unwrap_or_default()
+    }));
+    f64s.retain(|v| keep(*v));
+    let f32s = (0..2_000)
+        .map(|_| f32::from_bits(next() as u32))
+        .filter(|v| keep((*v).into()))
+        .collect();
+    (f64s, f32s)
 }
 
 /// How to run a `.ts` test file with the `node` on `PATH`, or `None` if it can't.
@@ -420,18 +505,23 @@ fn binary_typescript_conformance() -> Result<(), Failure> {
     }
 }
 
-/// Decode `fixtures/ts/<name>.bin` and `<name>.nokeys.bin`, written by the TS encoder.
-fn decode_ts<T: DeserializeOwned>(name: &str) -> Result<[T; 2], Failure> {
+/// Decode each variant of `fixtures/ts/<name>`, written by the TS encoder.
+fn decode_ts<T: DeserializeOwned>(name: &str) -> Result<Vec<T>, Failure> {
     let dir = project_dir().join("fixtures").join("ts");
-    let decode = |suffix: &str| -> Result<T, Failure> {
-        let path = dir.join(format!("{name}.{suffix}"));
-        let bytes = fs::read(&path).map_err(|err| format!("read {}: {err}", path.display()))?;
-        Ok(from_slice(&bytes).map_err(|err| format!("decode {}: {err}", path.display()))?)
-    };
-    Ok([decode("bin")?, decode("nokeys.bin")?])
+    VARIANTS
+        .iter()
+        .map(|(suffix, ..)| {
+            let path = dir.join(format!("{name}.{suffix}"));
+            let bytes = fs::read(&path).map_err(|err| format!("read {}: {err}", path.display()))?;
+            Ok(from_slice(&bytes).map_err(|err| format!("decode {}: {err}", path.display()))?)
+        })
+        .collect()
 }
 
-fn check_ts<T: DeserializeOwned + PartialEq + Debug>(name: &str, expected: T) -> Result<(), Failure> {
+fn check_ts<T: DeserializeOwned + PartialEq + Debug>(
+    name: &str,
+    expected: T,
+) -> Result<(), Failure> {
     for value in decode_ts::<T>(name)? {
         assert_eq!(value, expected, "fixtures/ts/{name}");
     }
@@ -543,6 +633,25 @@ fn binary_rust_decodes_typescript_output() -> Result<(), Failure> {
     )?;
     check_ts("unicode", "héllo 🦀 \u{FEFF}".to_string())?;
     check_ts("date", "1970-01-01T00:00:00.000Z".to_string())?;
+    check_ts(
+        "repeated_strings",
+        (
+            vec!["a".to_string(), "b".into(), "a".into()],
+            vec![Color::Red, Color::Red],
+            BTreeMap::from([("Red".to_string(), "Red".to_string())]),
+        ),
+    )?;
+    check_ts(
+        "decimals",
+        (
+            0.1f32,
+            0.1f64,
+            1e21f64,
+            5e-324f64,
+            -1.5e-7f32,
+            9_007_199_254_740_992f64,
+        ),
+    )?;
     check_ts(
         "json_value",
         json!({ "a": [1, "two", null, true, { "b": 2.5 }], "big": 1u64 << 60, "nested": { "c": [] } }),

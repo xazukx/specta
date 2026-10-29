@@ -1,16 +1,18 @@
-use serde::de::{
-    self, DeserializeSeed, IntoDeserializer, Visitor, value::BorrowedStrDeserializer,
-};
+use serde::de::{self, DeserializeSeed, IntoDeserializer, Visitor, value::BorrowedStrDeserializer};
+
+use std::str::FromStr;
 
 use crate::{
     Config, Error, ErrorKind, ValueType,
-    value_type::{FLAG_HAS_KEY_TABLE, KNOWN_FLAGS, MAGIC, VERSION},
+    decimal::Decimal,
+    value_type::{FLAG_HAS_KEY_TABLE, FLAG_HAS_VALUE_TABLE, KNOWN_FLAGS, MAGIC, VERSION},
     varint,
 };
 
 /// A serde [`Deserializer`](serde::Deserializer) over a Specta Binary document.
 ///
-/// Strings, bytes and object keys are borrowed from the input where the target type allows it.
+/// Strings, bytes and object keys are borrowed from the input (or its key and value tables)
+/// where the target type allows it.
 ///
 /// ```
 /// use serde::Deserialize;
@@ -28,6 +30,8 @@ pub struct Deserializer<'de> {
     pos: usize,
     /// The key table, if the document has one.
     keys: Option<Vec<&'de str>>,
+    /// The value table, empty if the document has none.
+    values: Vec<&'de str>,
     depth: usize,
     max_depth: usize,
 }
@@ -35,17 +39,18 @@ pub struct Deserializer<'de> {
 type Result<T, E = Error> = std::result::Result<T, E>;
 
 impl<'de> Deserializer<'de> {
-    /// Read the header and key table of `input`.
+    /// Read the header and tables of `input`.
     pub fn from_slice(input: &'de [u8]) -> Result<Self> {
         Self::from_slice_with(input, &Config::default())
     }
 
-    /// Read the header and key table of `input`. Only [`Config::max_depth`] applies.
+    /// Read the header and tables of `input`. Only [`Config::max_depth`] applies.
     pub fn from_slice_with(input: &'de [u8], config: &Config) -> Result<Self> {
         let mut de = Self {
             input,
             pos: 0,
             keys: None,
+            values: Vec::new(),
             depth: 0,
             max_depth: config.max_depth,
         };
@@ -62,13 +67,19 @@ impl<'de> Deserializer<'de> {
             return Err(Error::at(ErrorKind::UnknownFlags(flags), 3));
         }
         if flags & FLAG_HAS_KEY_TABLE != 0 {
-            let count = de.read_len()?;
-            let keys = (0..count)
-                .map(|_| de.read_len().and_then(|len| de.read_str(len)))
-                .collect::<Result<_>>()?;
-            de.keys = Some(keys);
+            de.keys = Some(de.read_table()?);
+        }
+        if flags & FLAG_HAS_VALUE_TABLE != 0 {
+            de.values = de.read_table()?;
         }
         Ok(de)
+    }
+
+    fn read_table(&mut self) -> Result<Vec<&'de str>> {
+        let count = self.read_len()?;
+        (0..count)
+            .map(|_| self.read_len().and_then(|len| self.read_str(len)))
+            .collect()
     }
 
     /// Check that the whole input has been consumed. Call this after deserializing the root value.
@@ -110,16 +121,25 @@ impl<'de> Deserializer<'de> {
     }
 
     fn read_varint(&mut self) -> Result<u32> {
+        self.read_varint_with(varint::read)
+    }
+
+    fn read_varint64(&mut self) -> Result<u64> {
+        self.read_varint_with(varint::read64)
+    }
+
+    fn read_varint_with<T>(
+        &mut self,
+        read: fn(&[u8]) -> Result<(T, usize), varint::ReadError>,
+    ) -> Result<T> {
         let rest = self.input.get(self.pos..).unwrap_or_default();
-        match varint::read(rest) {
+        match read(rest) {
             Ok((value, used)) => {
                 self.pos += used;
                 Ok(value)
             }
             Err(varint::ReadError::Eof) => Err(Error::at(ErrorKind::UnexpectedEof, self.pos)),
-            Err(varint::ReadError::Overflow) => {
-                Err(Error::at(ErrorKind::VarintOverflow, self.pos))
-            }
+            Err(varint::ReadError::Overflow) => Err(Error::at(ErrorKind::VarintOverflow, self.pos)),
         }
     }
 
@@ -179,6 +199,10 @@ impl<'de> Deserializer<'de> {
         }
     }
 
+    fn read_i16(&mut self) -> Result<i16> {
+        self.read_array().map(i16::from_le_bytes)
+    }
+
     fn read_i32(&mut self) -> Result<i32> {
         self.read_array().map(i32::from_le_bytes)
     }
@@ -187,12 +211,34 @@ impl<'de> Deserializer<'de> {
         self.read_array().map(i64::from_le_bytes)
     }
 
-    fn read_f32(&mut self) -> Result<f32> {
-        self.read_array().map(f32::from_le_bytes)
-    }
-
     fn read_f64(&mut self) -> Result<f64> {
         self.read_array().map(f64::from_le_bytes)
+    }
+
+    /// Read a `Decimal` as the nearest `T`, rounding once even when `T` is `f32`.
+    fn read_decimal<T: FromStr + Default>(&mut self) -> Result<T> {
+        let head = self.read_varint()?;
+        let mantissa = self.read_varint64()?;
+        Ok(Decimal::from_head(head, mantissa).to_float())
+    }
+
+    /// Read the rest of a string value: inline after a string tag, or an id into the value table.
+    fn read_string(&mut self, tag: ValueType) -> Result<&'de str> {
+        if tag != ValueType::InternedString {
+            let len = self.read_len_of(tag)?;
+            return self.read_str(len);
+        }
+        let at = self.pos;
+        let id = self.read_varint()?;
+        self.values.get(id as usize).copied().ok_or_else(|| {
+            Error::at(
+                ErrorKind::ValueIdOutOfRange {
+                    id,
+                    count: self.values.len(),
+                },
+                at,
+            )
+        })
     }
 
     fn read_key(&mut self) -> Result<&'de str> {
@@ -215,10 +261,11 @@ impl<'de> Deserializer<'de> {
         }
     }
 
-    /// Read an `Int32` or `Int64`, returning it with the offset of its tag.
+    /// Read an `Int16`, `Int32` or `Int64`, returning it with the offset of its tag.
     fn read_integer(&mut self, expected: &'static str) -> Result<(i64, usize)> {
         let at = self.pos;
         match self.read_tag()? {
+            ValueType::Int16 => Ok((self.read_i16()?.into(), at)),
             ValueType::Int32 => Ok((self.read_i32()?.into(), at)),
             ValueType::Int64 => Ok((self.read_i64()?, at)),
             found => Err(mismatch(expected, found, at)),
@@ -229,7 +276,10 @@ impl<'de> Deserializer<'de> {
         let (value, at) = self.read_integer("u8")?;
         u8::try_from(value).map_err(|_| {
             Error::at(
-                ErrorKind::IntegerOutOfRange { value, target: "u8" },
+                ErrorKind::IntegerOutOfRange {
+                    value,
+                    target: "u8",
+                },
                 at,
             )
         })
@@ -237,16 +287,18 @@ impl<'de> Deserializer<'de> {
 
     fn enter(&mut self, at: usize) -> Result<()> {
         if self.depth >= self.max_depth {
-            return Err(Error::at(
-                ErrorKind::DepthLimitExceeded(self.max_depth),
-                at,
-            ));
+            return Err(Error::at(ErrorKind::DepthLimitExceeded(self.max_depth), at));
         }
         self.depth += 1;
         Ok(())
     }
 
-    fn visit_array<V: Visitor<'de>>(&mut self, count: usize, at: usize, visitor: V) -> Result<V::Value> {
+    fn visit_array<V: Visitor<'de>>(
+        &mut self,
+        count: usize,
+        at: usize,
+        visitor: V,
+    ) -> Result<V::Value> {
         self.enter(at)?;
         let mut access = SeqAccess {
             de: self,
@@ -263,7 +315,12 @@ impl<'de> Deserializer<'de> {
         }
     }
 
-    fn visit_object<V: Visitor<'de>>(&mut self, count: usize, at: usize, visitor: V) -> Result<V::Value> {
+    fn visit_object<V: Visitor<'de>>(
+        &mut self,
+        count: usize,
+        at: usize,
+        visitor: V,
+    ) -> Result<V::Value> {
         self.enter(at)?;
         let mut access = MapAccess {
             de: self,
@@ -288,15 +345,23 @@ impl<'de> Deserializer<'de> {
             ValueType::Bool => {
                 self.read_bool()?;
             }
-            ValueType::Int32 | ValueType::Float32 => {
+            ValueType::Int16 => {
+                self.read_slice(2)?;
+            }
+            ValueType::Int32 => {
                 self.read_slice(4)?;
             }
             ValueType::Int64 | ValueType::Float64 => {
                 self.read_slice(8)?;
             }
-            tag @ (ValueType::StringUtf8 | ValueType::ShortStringUtf8) => {
-                let len = self.read_len_of(tag)?;
-                self.read_str(len)?;
+            ValueType::Decimal => {
+                self.read_varint()?;
+                self.read_varint64()?;
+            }
+            tag @ (ValueType::StringUtf8
+            | ValueType::ShortStringUtf8
+            | ValueType::InternedString) => {
+                self.read_string(tag)?;
             }
             tag @ (ValueType::ByteArray | ValueType::ShortByteArray) => {
                 let len = self.read_len_of(tag)?;
@@ -349,14 +414,14 @@ impl<'de> de::Deserializer<'de> for &mut Deserializer<'de> {
         match self.read_tag()? {
             ValueType::Null => visitor.visit_unit(),
             ValueType::Bool => visitor.visit_bool(self.read_bool()?),
+            ValueType::Int16 => visitor.visit_i16(self.read_i16()?),
             ValueType::Int32 => visitor.visit_i32(self.read_i32()?),
             ValueType::Int64 => visitor.visit_i64(self.read_i64()?),
-            ValueType::Float32 => visitor.visit_f32(self.read_f32()?),
+            ValueType::Decimal => visitor.visit_f64(self.read_decimal()?),
             ValueType::Float64 => visitor.visit_f64(self.read_f64()?),
-            tag @ (ValueType::StringUtf8 | ValueType::ShortStringUtf8) => {
-                let len = self.read_len_of(tag)?;
-                visitor.visit_borrowed_str(self.read_str(len)?)
-            }
+            tag @ (ValueType::StringUtf8
+            | ValueType::ShortStringUtf8
+            | ValueType::InternedString) => visitor.visit_borrowed_str(self.read_string(tag)?),
             tag @ (ValueType::ByteArray | ValueType::ShortByteArray) => {
                 let len = self.read_len_of(tag)?;
                 visitor.visit_borrowed_bytes(self.read_slice(len)?)
@@ -403,8 +468,9 @@ impl<'de> de::Deserializer<'de> for &mut Deserializer<'de> {
     fn deserialize_f32<V: Visitor<'de>>(self, visitor: V) -> Result<V::Value> {
         let at = self.pos;
         let value = match self.read_tag()? {
-            ValueType::Float32 => self.read_f32()?,
+            ValueType::Decimal => self.read_decimal()?,
             ValueType::Float64 => self.read_f64()? as f32,
+            ValueType::Int16 => self.read_i16()?.into(),
             ValueType::Int32 => self.read_i32()? as f32,
             ValueType::Int64 => self.read_i64()? as f32,
             found => return Err(mismatch("f32", found, at)),
@@ -415,8 +481,9 @@ impl<'de> de::Deserializer<'de> for &mut Deserializer<'de> {
     fn deserialize_f64<V: Visitor<'de>>(self, visitor: V) -> Result<V::Value> {
         let at = self.pos;
         let value = match self.read_tag()? {
+            ValueType::Decimal => self.read_decimal()?,
             ValueType::Float64 => self.read_f64()?,
-            ValueType::Float32 => self.read_f32()?.into(),
+            ValueType::Int16 => self.read_i16()?.into(),
             ValueType::Int32 => self.read_i32()?.into(),
             ValueType::Int64 => self.read_i64()? as f64,
             found => return Err(mismatch("f64", found, at)),
@@ -431,10 +498,9 @@ impl<'de> de::Deserializer<'de> for &mut Deserializer<'de> {
     fn deserialize_str<V: Visitor<'de>>(self, visitor: V) -> Result<V::Value> {
         let at = self.pos;
         match self.read_tag()? {
-            tag @ (ValueType::StringUtf8 | ValueType::ShortStringUtf8) => {
-                let len = self.read_len_of(tag)?;
-                visitor.visit_borrowed_str(self.read_str(len)?)
-            }
+            tag @ (ValueType::StringUtf8
+            | ValueType::ShortStringUtf8
+            | ValueType::InternedString) => visitor.visit_borrowed_str(self.read_string(tag)?),
             found => Err(mismatch("string", found, at)),
         }
     }
@@ -569,9 +635,10 @@ impl<'de> de::Deserializer<'de> for &mut Deserializer<'de> {
     ) -> Result<V::Value> {
         let at = self.pos;
         match self.read_tag()? {
-            tag @ (ValueType::StringUtf8 | ValueType::ShortStringUtf8) => {
-                let len = self.read_len_of(tag)?;
-                visitor.visit_enum(BorrowedStrDeserializer::new(self.read_str(len)?))
+            tag @ (ValueType::StringUtf8
+            | ValueType::ShortStringUtf8
+            | ValueType::InternedString) => {
+                visitor.visit_enum(BorrowedStrDeserializer::new(self.read_string(tag)?))
             }
             tag @ (ValueType::Object | ValueType::ShortObject) => {
                 match self.read_len_of(tag)? {
@@ -696,7 +763,13 @@ impl<'a, 'de> de::EnumAccess<'de> for EnumAccess<'a, 'de> {
         let value = seed
             .deserialize(KeyDeserializer(variant))
             .map_err(|err| err.or_offset(at))?;
-        Ok((value, VariantAccess { de: self.de, variant }))
+        Ok((
+            value,
+            VariantAccess {
+                de: self.de,
+                variant,
+            },
+        ))
     }
 }
 

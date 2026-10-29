@@ -25,17 +25,21 @@
  *   `JSON.parse`. `"bigint"` always gives a `bigint`.
  * - `bytes`: `"uint8array"` (default) gives a `Uint8Array` view into the input (no copy, so
  *   it changes if the input does). `"array"` gives a `number[]`, the JSON shape.
- * - `float32`: `"shortest"` (default) gives the shortest decimal that rounds to the same
- *   `f32`, matching `serde_json` (`0.1f32` decodes to `0.1`). `"exact"` is faster.
  * - `maxDepth`: the maximum nesting of arrays and objects. Defaults to 128.
+ *
+ * Rust floats arrive as `Decimal` (the shortest decimal, like `1.5` = 15 × 10^-1) or, when that
+ * would be longer, as `Float64`. Both decode to the same `number` as `JSON.parse` of the
+ * `serde_json` output, so `0.1f32` decodes to `0.1`.
  *
  * Encoding (`EncodeOptions`) mirrors `JSON.stringify`, except that unsupported values throw:
  * - `keyTable`: intern object keys into a table at the start of the document (default `true`).
+ * - `valueTable`: intern string values into a table at the start of the document (default `true`).
  * - `undefined` object properties are omitted, `undefined` array items become `null`.
- * - Integer numbers are written as `Int32`/`Int64`, other numbers (including `NaN` and
- *   `±Infinity`) as `Float64`. `bigint` is written as an integer and must fit in an `i64`.
- * - `Uint8Array` is written as a byte array. Objects with a `toJSON()` method (like `Date`)
- *   are encoded as its result.
+ * - Safe integers are written as `Int16`/`Int32`/`Int64`. Other numbers are written as
+ *   `Decimal` when it takes at most 9 bytes, otherwise (and for `NaN` and `±Infinity`) as
+ *   `Float64`. `bigint` is written as an integer and must fit in an `i64`.
+ * - `Uint8Array` (including Node's `Buffer`) is written as a byte array. Other objects with a
+ *   `toJSON()` method (like `Date`) are encoded as its result.
  * - `Map`, `Set`, functions, symbols, other typed arrays and cycles throw.
  *
  * Errors are thrown as `SpectaBinaryError`, which carries the `path` to the failing value
@@ -45,18 +49,20 @@
 export const ValueType = {
   Null: 0,
   Bool: 5,
-  Int32: 10,
-  Int64: 15,
-  Float32: 20,
-  Float64: 25,
-  StringUtf8: 30,
-  ShortStringUtf8: 35,
-  ByteArray: 40,
-  ShortByteArray: 45,
-  Array: 50,
-  ShortArray: 55,
-  Object: 60,
-  ShortObject: 65,
+  Int16: 10,
+  Int32: 15,
+  Int64: 20,
+  Decimal: 25,
+  Float64: 30,
+  StringUtf8: 35,
+  ShortStringUtf8: 40,
+  InternedString: 45,
+  ByteArray: 50,
+  ShortByteArray: 55,
+  Array: 60,
+  ShortArray: 65,
+  Object: 70,
+  ShortObject: 75,
 } as const;
 
 export type ValueType = (typeof ValueType)[keyof typeof ValueType];
@@ -64,6 +70,8 @@ export type ValueType = (typeof ValueType)[keyof typeof ValueType];
 export interface EncodeOptions {
   /** Intern object keys into a key table. Defaults to `true`. */
   keyTable?: boolean;
+  /** Intern string values into a value table. Defaults to `true`. */
+  valueTable?: boolean;
 }
 
 export interface DecodeOptions {
@@ -71,14 +79,13 @@ export interface DecodeOptions {
   int64?: "auto" | "number" | "bigint";
   /** How to return byte arrays. Defaults to `"uint8array"`. */
   bytes?: "uint8array" | "array";
-  /** How to return `Float32` values. Defaults to `"shortest"`. */
-  float32?: "shortest" | "exact";
   /** The maximum nesting depth of arrays and objects. Defaults to `128`. */
   maxDepth?: number;
 }
 
 const VERSION = 0x01;
 const FLAG_HAS_KEY_TABLE = 0x01;
+const FLAG_HAS_VALUE_TABLE = 0x02;
 const SHORT_MAX = 0xff;
 const TWO_POW_32 = 0x1_0000_0000;
 const I64_MIN = -(1n << 63n);
@@ -139,6 +146,11 @@ function keySegment(key: string): string {
   return /^[A-Za-z_$][A-Za-z0-9_$]*$/.test(key) ? `.${key}` : `[${JSON.stringify(key)}]`;
 }
 
+/** The size of a `Float64` value. Writers use `Decimal` when it is no larger. */
+const FLOAT64_LEN = 9;
+/** The powers of ten that are exact in a `number`. */
+const POW10 = Array.from({ length: 23 }, (_, i) => Number(`1e${i}`));
+
 function hex(byte: number): string {
   return `0x${byte.toString(16).padStart(2, "0")}`;
 }
@@ -175,10 +187,10 @@ class Reader {
   readonly end: number;
   pos = 0;
   keys: string[] | null = null;
+  values: string[] = [];
   depth = 0;
   readonly int64: "auto" | "number" | "bigint";
   readonly bytesAsArray: boolean;
-  readonly exactFloat32: boolean;
   readonly maxDepth: number;
 
   constructor(bytes: Uint8Array, options: DecodeOptions) {
@@ -187,7 +199,6 @@ class Reader {
     this.end = bytes.byteLength;
     this.int64 = options.int64 ?? "auto";
     this.bytesAsArray = options.bytes === "array";
-    this.exactFloat32 = options.float32 === "exact";
     this.maxDepth = options.maxDepth ?? 128;
   }
 
@@ -202,15 +213,18 @@ class Reader {
       throw new SpectaBinaryError(`unsupported version ${version}`, 2);
     }
     const flags = this.u8();
-    if ((flags & ~FLAG_HAS_KEY_TABLE) !== 0) {
+    if ((flags & ~(FLAG_HAS_KEY_TABLE | FLAG_HAS_VALUE_TABLE)) !== 0) {
       throw new SpectaBinaryError(`unknown header flags ${hex(flags)}`, 3);
     }
-    if (flags & FLAG_HAS_KEY_TABLE) {
-      const count = this.varLen();
-      const keys: string[] = [];
-      for (let i = 0; i < count; i++) keys.push(this.str(this.varLen()));
-      this.keys = keys;
-    }
+    if (flags & FLAG_HAS_KEY_TABLE) this.keys = this.table();
+    if (flags & FLAG_HAS_VALUE_TABLE) this.values = this.table();
+  }
+
+  table(): string[] {
+    const count = this.varLen();
+    const strings: string[] = [];
+    for (let i = 0; i < count; i++) strings.push(this.str(this.varLen()));
+    return strings;
   }
 
   need(n: number): void {
@@ -237,7 +251,26 @@ class Reader {
       value += (byte & 0x7f) * 2 ** (7 * i);
       if ((byte & 0x80) === 0) return value;
     }
-    throw new SpectaBinaryError("varint is longer than 5 bytes or overflows 32 bits", at);
+    throw new SpectaBinaryError("varint is too long or overflows", at);
+  }
+
+  /** A 64-bit varint, as a `number` while that is exact and a `bigint` beyond 7 bytes. */
+  varint64(): number | bigint {
+    const at = this.pos;
+    let value = 0;
+    let big: bigint | null = null;
+    for (let i = 0; i < 10; i++) {
+      if (this.pos >= this.end) {
+        throw new SpectaBinaryError("unexpected end of input", at);
+      }
+      const byte = this.view.getUint8(this.pos++);
+      // The 10th byte holds bit 63, so only its lowest bit may be set and it must be the last.
+      if (i === 9 && byte > 0x01) break;
+      if (i < 7) value += (byte & 0x7f) * 2 ** (7 * i);
+      else big = (big ?? BigInt(value)) + (BigInt(byte & 0x7f) << BigInt(7 * i));
+      if ((byte & 0x80) === 0) return big ?? value;
+    }
+    throw new SpectaBinaryError("varint is too long or overflows", at);
   }
 
   /** Check a length or count read at `at` against the bytes that are left. */
@@ -297,6 +330,35 @@ class Reader {
     return key;
   }
 
+  interned(): string {
+    const at = this.pos;
+    const id = this.varint();
+    const value = this.values[id];
+    if (value === undefined) {
+      throw new SpectaBinaryError(
+        `value id ${id} is out of range for a value table of ${this.values.length} values`,
+        at,
+      );
+    }
+    return value;
+  }
+
+  /** `±mantissa × 10^exponent`, rounded to the nearest `number`. */
+  decimal(): number {
+    const head = this.varint();
+    const mantissa = this.varint64();
+    const zigzag = head >>> 1;
+    const exponent = (zigzag >>> 1) ^ -(zigzag & 1);
+    let value: number;
+    if (typeof mantissa === "number" && mantissa <= 2 ** 53 && Math.abs(exponent) <= 22) {
+      // Both operands are exact, so a single operation rounds correctly.
+      value = exponent < 0 ? mantissa / POW10[-exponent]! : mantissa * POW10[exponent]!;
+    } else {
+      value = Number(`${mantissa}e${exponent}`);
+    }
+    return head & 1 ? -value : value;
+  }
+
   enter(at: number): void {
     if (this.depth >= this.maxDepth) {
       throw new SpectaBinaryError(`maximum nesting depth of ${this.maxDepth} exceeded`, at);
@@ -315,6 +377,12 @@ class Reader {
         if (byte > 1) throw new SpectaBinaryError(`invalid bool byte ${hex(byte)}`, this.pos - 1);
         return byte === 1;
       }
+      case ValueType.Int16: {
+        this.need(2);
+        const value = this.view.getInt16(this.pos, true);
+        this.pos += 2;
+        return value;
+      }
       case ValueType.Int32: {
         this.need(4);
         const value = this.view.getInt32(this.pos, true);
@@ -323,8 +391,8 @@ class Reader {
       }
       case ValueType.Int64:
         return this.int64Value();
-      case ValueType.Float32:
-        return this.float32Value();
+      case ValueType.Decimal:
+        return this.decimal();
       case ValueType.Float64: {
         this.need(8);
         const value = this.view.getFloat64(this.pos, true);
@@ -335,6 +403,8 @@ class Reader {
         return this.str(this.varLen());
       case ValueType.ShortStringUtf8:
         return this.str(this.shortLen());
+      case ValueType.InternedString:
+        return this.interned();
       case ValueType.ByteArray:
         return this.byteArray(this.varLen());
       case ValueType.ShortByteArray:
@@ -363,19 +433,6 @@ class Reader {
     const value = hi * TWO_POW_32 + lo;
     if (this.int64 === "number" || Number.isSafeInteger(value)) return value;
     return this.view.getBigInt64(at, true);
-  }
-
-  float32Value(): number {
-    this.need(4);
-    const value = this.view.getFloat32(this.pos, true);
-    this.pos += 4;
-    // `0` is checked first so `-0` keeps its sign.
-    if (this.exactFloat32 || value === 0 || !Number.isFinite(value)) return value;
-    for (let precision = 1; precision <= 9; precision++) {
-      const shortest = Number(value.toPrecision(precision));
-      if (Math.fround(shortest) === value) return shortest;
-    }
-    return value;
   }
 
   byteArray(len: number): Uint8Array | number[] {
@@ -432,7 +489,7 @@ class Reader {
 
 /** Encode a value as a Specta Binary document. */
 export function encode(value: unknown, options?: EncodeOptions): Uint8Array {
-  const writer = new Writer(options?.keyTable ?? true);
+  const writer = new Writer(options?.keyTable ?? true, options?.valueTable ?? true);
   try {
     const root = resolve(value, "");
     if (root === undefined) throw new SpectaBinaryError("cannot encode undefined");
@@ -443,13 +500,32 @@ export function encode(value: unknown, options?: EncodeOptions): Uint8Array {
   return writer.finish();
 }
 
-/** Apply `toJSON`, like `JSON.stringify` does. */
+/**
+ * Apply `toJSON`, like `JSON.stringify` does. Byte arrays skip it, because Node's
+ * `Buffer.toJSON()` would turn the bytes into `{ type: "Buffer", data: number[] }`.
+ */
 function resolve(value: unknown, key: string | number): unknown {
-  if (typeof value === "object" && value !== null) {
+  if (typeof value === "object" && value !== null && !(value instanceof Uint8Array)) {
     const toJSON = (value as { toJSON?: unknown }).toJSON;
     if (typeof toJSON === "function") return toJSON.call(value, String(key));
   }
   return value;
+}
+
+/**
+ * A finite, non-integer or unsafe `value` as `±mantissa × 10^exponent`, with the `head` varint
+ * holding the zigzag-encoded exponent and the sign. `String` gives the shortest digits that read
+ * back as `value`, like `1.5`, `0.001`, `1e+21` or `123456789012345680000`. A mantissa of 16 or
+ * more digits isn't exact here, but it is too long for a `Decimal` anyway.
+ */
+function shortestDecimal(value: number): { head: number; mantissa: number } {
+  const [digits = "", exp = "0"] = String(Math.abs(value)).split("e");
+  const [int = "", fraction = ""] = digits.split(".");
+  const all = int + fraction;
+  const significant = all.replace(/0+$/, "");
+  const exponent = Number(exp) - fraction.length + (all.length - significant.length);
+  const zigzag = exponent < 0 ? -exponent * 2 - 1 : exponent * 2;
+  return { head: zigzag * 2 + (value < 0 ? 1 : 0), mantissa: Number(significant) };
 }
 
 function varintLen(value: number): number {
@@ -466,11 +542,13 @@ class Writer {
   view = new DataView(this.buf.buffer);
   pos = 0;
   readonly keys: Map<string, number> | null;
+  readonly values: Map<string, number> | null;
   /** The arrays and objects currently being encoded, to detect cycles. */
   readonly stack = new Set<object>();
 
-  constructor(keyTable: boolean) {
+  constructor(keyTable: boolean, valueTable: boolean) {
     this.keys = keyTable ? new Map() : null;
+    this.values = valueTable ? new Map() : null;
   }
 
   ensure(n: number): void {
@@ -494,6 +572,16 @@ class Writer {
     while (value >= 0x80) {
       this.buf[this.pos++] = (value & 0x7f) | 0x80;
       value >>>= 7;
+    }
+    this.buf[this.pos++] = value;
+  }
+
+  /** A varint of up to 53 bits, past what `>>>` can shift. */
+  varint64(value: number): void {
+    this.ensure(8);
+    while (value >= 0x80) {
+      this.buf[this.pos++] = (value % 0x80) | 0x80;
+      value = Math.floor(value / 0x80);
     }
     this.buf[this.pos++] = value;
   }
@@ -538,6 +626,11 @@ class Writer {
   }
 
   string(str: string): void {
+    if (this.values !== null) {
+      this.u8(ValueType.InternedString);
+      this.varint(intern(this.values, str));
+      return;
+    }
     const len = this.encodeUtf8(str, 2);
     this.place(2, len <= SHORT_MAX ? 2 : 1 + varintLen(len), len);
     this.header(ValueType.ShortStringUtf8, ValueType.StringUtf8, len);
@@ -552,12 +645,7 @@ class Writer {
       this.pos += len;
       return;
     }
-    let id = this.keys.get(key);
-    if (id === undefined) {
-      id = this.keys.size;
-      this.keys.set(key, id);
-    }
-    this.varint(id);
+    this.varint(intern(this.keys, key));
   }
 
   value(value: unknown): void {
@@ -582,24 +670,34 @@ class Writer {
   }
 
   number(value: number): void {
-    if (Number.isInteger(value)) {
-      if (value >= -0x8000_0000 && value <= 0x7fff_ffff) {
+    // `-0` is a safe integer, written as `0` like `JSON.stringify` does.
+    if (Number.isSafeInteger(value)) {
+      if (value >= -0x8000 && value <= 0x7fff) {
+        this.ensure(3);
+        this.buf[this.pos] = ValueType.Int16;
+        this.view.setInt16(this.pos + 1, value, true);
+        this.pos += 3;
+      } else if (value >= -0x8000_0000 && value <= 0x7fff_ffff) {
         this.ensure(5);
         this.buf[this.pos] = ValueType.Int32;
-        // `-0` is written as `0`, like `JSON.stringify`.
         this.view.setInt32(this.pos + 1, value, true);
         this.pos += 5;
-        return;
-      }
-      if (Number.isSafeInteger(value)) {
+      } else {
         const hi = Math.floor(value / TWO_POW_32);
         this.ensure(9);
         this.buf[this.pos] = ValueType.Int64;
         this.view.setUint32(this.pos + 1, value - hi * TWO_POW_32, true);
         this.view.setInt32(this.pos + 5, hi, true);
         this.pos += 9;
-        return;
       }
+      return;
+    }
+    const decimal = Number.isFinite(value) ? shortestDecimal(value) : null;
+    if (decimal && 1 + varintLen(decimal.head) + varintLen(decimal.mantissa) <= FLOAT64_LEN) {
+      this.u8(ValueType.Decimal);
+      this.varint(decimal.head);
+      this.varint64(decimal.mantissa);
+      return;
     }
     this.ensure(9);
     this.buf[this.pos] = ValueType.Float64;
@@ -687,29 +785,42 @@ class Writer {
   }
 
   finish(): Uint8Array {
-    const keys =
-      this.keys !== null && this.keys.size > 0
-        ? Array.from(this.keys.keys(), (key) => textEncoder.encode(key))
-        : null;
+    // Maps iterate in insertion order, which is id order. Empty tables are never written.
+    const encodeTable = (table: Map<string, number> | null) =>
+      table !== null && table.size > 0 ? Array.from(table.keys(), (s) => textEncoder.encode(s)) : null;
+    const keys = encodeTable(this.keys);
+    const values = encodeTable(this.values);
+    const tables = [keys, values].filter((table) => table !== null);
     let size = 4 + this.pos;
-    if (keys !== null) {
-      size += varintLen(keys.length);
-      for (const key of keys) size += varintLen(key.length) + key.length;
+    for (const table of tables) {
+      size += varintLen(table.length);
+      for (const s of table) size += varintLen(s.length) + s.length;
     }
-    const out = new Writer(false);
+    const out = new Writer(false, false);
     out.buf = new Uint8Array(size);
     out.view = new DataView(out.buf.buffer);
-    out.buf.set([0x53, 0x42, VERSION, keys === null ? 0 : FLAG_HAS_KEY_TABLE]);
+    const flags = (keys ? FLAG_HAS_KEY_TABLE : 0) | (values ? FLAG_HAS_VALUE_TABLE : 0);
+    out.buf.set([0x53, 0x42, VERSION, flags]);
     out.pos = 4;
-    if (keys !== null) {
-      out.varint(keys.length);
-      for (const key of keys) {
-        out.varint(key.length);
-        out.buf.set(key, out.pos);
-        out.pos += key.length;
+    for (const table of tables) {
+      out.varint(table.length);
+      for (const s of table) {
+        out.varint(s.length);
+        out.buf.set(s, out.pos);
+        out.pos += s.length;
       }
     }
     out.buf.set(this.buf.subarray(0, this.pos), out.pos);
     return out.buf;
   }
+}
+
+/** The id of `s` in `table`, adding it with the next id if it is new. */
+function intern(table: Map<string, number>, s: string): number {
+  let id = table.get(s);
+  if (id === undefined) {
+    id = table.size;
+    table.set(s, id);
+  }
+  return id;
 }

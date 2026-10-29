@@ -1,18 +1,19 @@
-use std::borrow::Cow;
+use std::{borrow::Cow, fmt};
 
 use serde::ser::{self, Impossible, Serialize};
 
 use crate::{
     Config, Error, ErrorKind, ValueType,
-    keys::KeyTable,
-    value_type::{FLAG_HAS_KEY_TABLE, MAGIC, SHORT_MAX, VERSION},
+    decimal::{Decimal, FLOAT64_LEN},
+    table::{self, StringTable},
+    value_type::{FLAG_HAS_KEY_TABLE, FLAG_HAS_VALUE_TABLE, MAGIC, SHORT_MAX, VERSION},
     varint,
 };
 
 /// A serde [`Serializer`](serde::Serializer) that produces a Specta Binary document.
 ///
-/// Serialization is buffered: the body is written first so the key table can be built
-/// from the keys it uses, then [`Serializer::into_bytes`] prepends the header and table.
+/// Serialization is buffered: the body is written first so the key and value tables can be
+/// built from the strings it uses, then [`Serializer::into_bytes`] prepends the header and tables.
 ///
 /// ```
 /// use serde::Serialize;
@@ -25,55 +26,53 @@ use crate::{
 #[derive(Debug)]
 pub struct Serializer {
     body: Vec<u8>,
-    keys: Option<KeyTable>,
+    keys: Option<StringTable>,
+    values: Option<StringTable>,
 }
 
 impl Serializer {
     pub fn new(config: &Config) -> Self {
         Self {
             body: Vec::new(),
-            keys: config.key_table.then(KeyTable::default),
+            keys: config.key_table.then(StringTable::default),
+            values: config.value_table.then(StringTable::default),
         }
     }
 
-    /// Assemble the document: header, key table (only if a key was interned), then the body.
+    /// Assemble the document: header, key table and value table (each only if it isn't empty),
+    /// then the body.
     pub fn into_bytes(self) -> Vec<u8> {
-        let table = self
-            .keys
-            .filter(|keys| !keys.is_empty())
-            .map(KeyTable::into_ordered);
+        let keys = self.keys.and_then(StringTable::into_ordered);
+        let values = self.values.and_then(StringTable::into_ordered);
+        let tables = keys.iter().chain(&values);
 
         let mut doc = Vec::with_capacity(
-            MAGIC.len() + 2 + table.as_ref().map_or(0, |(_, size)| *size) + self.body.len(),
+            MAGIC.len()
+                + 2
+                + tables.clone().map(|t| table::encoded_len(t)).sum::<usize>()
+                + self.body.len(),
         );
         doc.extend_from_slice(&MAGIC);
         doc.push(VERSION);
-        match table {
-            Some((keys, _)) => {
-                doc.push(FLAG_HAS_KEY_TABLE);
-                // Counts and lengths were checked to fit in a `u32` when the keys were interned.
-                varint::write(&mut doc, keys.len() as u32);
-                for key in keys {
-                    varint::write(&mut doc, key.len() as u32);
-                    doc.extend_from_slice(key.as_bytes());
-                }
-            }
-            None => doc.push(0),
-        }
+        doc.push(
+            keys.as_ref().map_or(0, |_| FLAG_HAS_KEY_TABLE)
+                | values.as_ref().map_or(0, |_| FLAG_HAS_VALUE_TABLE),
+        );
+        tables.for_each(|t| table::write(&mut doc, t));
         doc.extend_from_slice(&self.body);
         doc
     }
 
     fn write_int(&mut self, value: i64) {
-        match i32::try_from(value) {
-            Ok(value) => {
-                self.body.push(ValueType::Int32 as u8);
-                self.body.extend_from_slice(&value.to_le_bytes());
-            }
-            Err(_) => {
-                self.body.push(ValueType::Int64 as u8);
-                self.body.extend_from_slice(&value.to_le_bytes());
-            }
+        if let Ok(value) = i16::try_from(value) {
+            self.body.push(ValueType::Int16 as u8);
+            self.body.extend_from_slice(&value.to_le_bytes());
+        } else if let Ok(value) = i32::try_from(value) {
+            self.body.push(ValueType::Int32 as u8);
+            self.body.extend_from_slice(&value.to_le_bytes());
+        } else {
+            self.body.push(ValueType::Int64 as u8);
+            self.body.extend_from_slice(&value.to_le_bytes());
         }
     }
 
@@ -91,9 +90,44 @@ impl Serializer {
         Ok(())
     }
 
-    fn write_str(&mut self, value: &str) -> Result<(), Error> {
-        self.write_header(ValueType::ShortStringUtf8, ValueType::StringUtf8, value.len())?;
-        self.body.extend_from_slice(value.as_bytes());
+    /// Write an `f32` or `f64` as a `Decimal` if that takes at most as many bytes as a
+    /// `Float64`, and as a `Float64` otherwise (including `NaN` and `±Infinity`).
+    fn write_float<F: fmt::LowerExp + Into<f64> + Copy>(&mut self, value: F) {
+        match Decimal::shortest(value).filter(|decimal| decimal.encoded_len() <= FLOAT64_LEN) {
+            Some(decimal) => {
+                self.body.push(ValueType::Decimal as u8);
+                varint::write(&mut self.body, decimal.head());
+                varint::write64(&mut self.body, decimal.mantissa);
+            }
+            None => {
+                self.body.push(ValueType::Float64 as u8);
+                self.body.extend_from_slice(&value.into().to_le_bytes());
+            }
+        }
+    }
+
+    /// Write a string value, as an id into the value table when it is on or inline otherwise.
+    /// `owned` is only called when a new string is added to the table.
+    fn write_str(
+        &mut self,
+        value: &str,
+        owned: impl FnOnce() -> Cow<'static, str>,
+    ) -> Result<(), Error> {
+        let Some(values) = &mut self.values else {
+            self.write_header(
+                ValueType::ShortStringUtf8,
+                ValueType::StringUtf8,
+                value.len(),
+            )?;
+            self.body.extend_from_slice(value.as_bytes());
+            return Ok(());
+        };
+        len_u32(value.len())?;
+        let id = values
+            .intern(value, owned)
+            .ok_or(ErrorKind::TooManyValues)?;
+        self.body.push(ValueType::InternedString as u8);
+        varint::write(&mut self.body, id);
         Ok(())
     }
 
@@ -107,7 +141,7 @@ impl Serializer {
         let len = len_u32(key.len())?;
         match &mut self.keys {
             Some(keys) => {
-                let id = keys.intern(key, owned)?;
+                let id = keys.intern(key, owned).ok_or(ErrorKind::TooManyKeys)?;
                 varint::write(&mut self.body, id);
             }
             None => {
@@ -318,23 +352,23 @@ impl<'a> ser::Serializer for &'a mut Serializer {
     }
 
     fn serialize_f32(self, v: f32) -> Result<(), Error> {
-        self.body.push(ValueType::Float32 as u8);
-        self.body.extend_from_slice(&v.to_le_bytes());
+        self.write_float(v);
         Ok(())
     }
 
     fn serialize_f64(self, v: f64) -> Result<(), Error> {
-        self.body.push(ValueType::Float64 as u8);
-        self.body.extend_from_slice(&v.to_le_bytes());
+        self.write_float(v);
         Ok(())
     }
 
     fn serialize_char(self, v: char) -> Result<(), Error> {
-        self.write_str(v.encode_utf8(&mut [0; 4]))
+        let mut buf = [0; 4];
+        let v = &*v.encode_utf8(&mut buf);
+        self.write_str(v, || Cow::Owned(v.to_owned()))
     }
 
     fn serialize_str(self, v: &str) -> Result<(), Error> {
-        self.write_str(v)
+        self.write_str(v, || Cow::Owned(v.to_owned()))
     }
 
     fn serialize_bytes(self, v: &[u8]) -> Result<(), Error> {
@@ -366,7 +400,7 @@ impl<'a> ser::Serializer for &'a mut Serializer {
         _variant_index: u32,
         variant: &'static str,
     ) -> Result<(), Error> {
-        self.write_str(variant)
+        self.write_str(variant, || Cow::Borrowed(variant))
     }
 
     fn serialize_newtype_struct<T: ?Sized + Serialize>(
@@ -499,12 +533,12 @@ impl ser::SerializeMap for Compound<'_> {
     }
 
     fn serialize_value<T: ?Sized + Serialize>(&mut self, value: &T) -> Result<(), Error> {
-        value.serialize(&mut *self.ser).map_err(|err| {
-            match self.ser.key_at(self.key_at) {
+        value
+            .serialize(&mut *self.ser)
+            .map_err(|err| match self.ser.key_at(self.key_at) {
                 Some(key) => err.in_key(key),
                 None => err,
-            }
-        })
+            })
     }
 
     fn end(self) -> Result<(), Error> {

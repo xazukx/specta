@@ -4,10 +4,10 @@ mod common;
 
 use std::collections::HashMap;
 
-use common::doc;
+use common::{doc, from_hex};
 use serde::Deserialize;
 use serde_bytes::ByteBuf;
-use specta_binary::{from_slice, to_vec};
+use specta_binary::{Config, from_slice, to_vec, to_vec_with};
 
 fn ser<T: serde::Serialize>(value: &T) -> Vec<u8> {
     to_vec(value).expect("serialize")
@@ -15,30 +15,125 @@ fn ser<T: serde::Serialize>(value: &T) -> Vec<u8> {
 
 #[test]
 fn integers_feed_float_targets() {
-    assert_eq!(from_slice::<f64>(&ser(&5i32)).expect("i32 -> f64"), 5.0);
-    assert_eq!(from_slice::<f32>(&ser(&5i32)).expect("i32 -> f32"), 5.0);
-    assert_eq!(from_slice::<f64>(&ser(&(1i64 << 40))).expect("i64 -> f64"), (1u64 << 40) as f64);
-    assert_eq!(from_slice::<f32>(&ser(&(1i64 << 40))).expect("i64 -> f32"), (1u64 << 40) as f32);
+    assert_eq!(from_slice::<f64>(&ser(&5i16)).expect("i16 -> f64"), 5.0);
+    assert_eq!(from_slice::<f32>(&ser(&5i16)).expect("i16 -> f32"), 5.0);
+    assert_eq!(
+        from_slice::<f64>(&ser(&70_000i32)).expect("i32 -> f64"),
+        70_000.0
+    );
+    assert_eq!(
+        from_slice::<f32>(&ser(&70_000i32)).expect("i32 -> f32"),
+        70_000.0
+    );
+    assert_eq!(
+        from_slice::<f64>(&ser(&(1i64 << 40))).expect("i64 -> f64"),
+        (1u64 << 40) as f64
+    );
+    assert_eq!(
+        from_slice::<f32>(&ser(&(1i64 << 40))).expect("i64 -> f32"),
+        (1u64 << 40) as f32
+    );
 }
 
 #[test]
-fn floats_convert_between_widths() {
-    assert_eq!(from_slice::<f32>(&ser(&0.1f64)).expect("f64 -> f32"), 0.1f32);
+fn decimals_feed_either_float_width() {
+    assert_eq!(
+        from_slice::<f32>(&ser(&0.1f64)).expect("f64 -> f32"),
+        0.1f32
+    );
     assert_eq!(from_slice::<f64>(&ser(&0.5f32)).expect("f32 -> f64"), 0.5);
+    // The mantissa is the shortest decimal for the `f32`, so it reads back as `0.1`, not as
+    // `0.10000000149011612` (the `f32` widened to an `f64`).
+    assert_eq!(from_slice::<f64>(&ser(&0.1f32)).expect("f32 -> f64"), 0.1);
+    // 10000000596046448e-16 is parsed straight into an `f32`. Rounding it to an `f64` first
+    // would land exactly halfway between two `f32`s and round again, to 1.0.
+    assert_eq!(
+        from_slice::<f32>(&doc("19 3E F0 E4 9F 9A A9 DE E1 11")).expect("decimal -> f32"),
+        1.000_000_1
+    );
+    // Writers never leave trailing zeros in the mantissa, but readers accept them: 150e-1.
+    assert_eq!(
+        from_slice::<f64>(&doc("19 02 96 01")).expect("150e-1"),
+        15.0
+    );
+}
+
+#[test]
+fn float64_feeds_either_float_width() {
+    // 17 significant digits don't fit in a 9-byte `Decimal`, so this is a `Float64`.
+    let bytes = ser(&(0.1 + 0.2));
+    assert_eq!(bytes[4], specta_binary::ValueType::Float64 as u8);
+    assert_eq!(
+        from_slice::<f64>(&bytes).expect("Float64 -> f64"),
+        0.1 + 0.2
+    );
+    assert_eq!(from_slice::<f32>(&bytes).expect("Float64 -> f32"), 0.3);
+    let err = from_slice::<i64>(&bytes).expect_err("floats don't feed integers");
+    assert_eq!(
+        err.to_string(),
+        "at $: expected i64, found Float64 (offset 4)"
+    );
 }
 
 #[test]
 fn integer_widths_are_range_checked() {
     assert_eq!(from_slice::<u8>(&ser(&255i64)).expect("fits"), 255);
-    assert_eq!(from_slice::<u64>(&ser(&i64::MAX)).expect("fits"), i64::MAX as u64);
-    assert_eq!(from_slice::<i8>(&doc("0F 80 FF FF FF FF FF FF FF")).expect("Int64 -> i8"), -128);
+    assert_eq!(
+        from_slice::<u64>(&ser(&i64::MAX)).expect("fits"),
+        i64::MAX as u64
+    );
+    assert_eq!(
+        from_slice::<i8>(&doc("14 80 FF FF FF FF FF FF FF")).expect("Int64 -> i8"),
+        -128
+    );
+    assert_eq!(
+        from_slice::<i8>(&doc("0F 80 FF FF FF")).expect("Int32 -> i8"),
+        -128
+    );
+    assert_eq!(
+        from_slice::<u64>(&doc("0A FF 7F")).expect("Int16 -> u64"),
+        32_767
+    );
 
     let err = from_slice::<u8>(&ser(&256)).expect_err("out of range");
-    assert_eq!(err.to_string(), "at $: integer 256 is out of range for u8 (offset 4)");
+    assert_eq!(
+        err.to_string(),
+        "at $: integer 256 is out of range for u8 (offset 4)"
+    );
     let err = from_slice::<u32>(&ser(&-1)).expect_err("negative");
-    assert_eq!(err.to_string(), "at $: integer -1 is out of range for u32 (offset 4)");
-    let err = from_slice::<i32>(&ser(&1.0f64)).expect_err("floats don't feed integers");
-    assert_eq!(err.to_string(), "at $: expected i32, found Float64 (offset 4)");
+    assert_eq!(
+        err.to_string(),
+        "at $: integer -1 is out of range for u32 (offset 4)"
+    );
+    let err = from_slice::<i32>(&ser(&1.0f64)).expect_err("decimals don't feed integers");
+    assert_eq!(
+        err.to_string(),
+        "at $: expected i32, found Decimal (offset 4)"
+    );
+}
+
+#[test]
+fn interned_and_inline_strings_are_interchangeable() {
+    #[derive(Debug, PartialEq, Deserialize)]
+    enum E {
+        A,
+    }
+    let interned = ser(&("a", 'b', "A"));
+    let inline =
+        to_vec_with(&("a", 'b', "A"), &Config::new().value_table(false)).expect("serialize");
+    assert_ne!(interned, inline);
+    for bytes in [interned, inline] {
+        assert_eq!(
+            from_slice::<(&str, char, E)>(&bytes).expect("strings"),
+            ("a", 'b', E::A)
+        );
+    }
+    // Inline strings are still valid in a document that has a value table.
+    let mixed = from_hex("53 42 01 02  01 01 61  41 02  2D 00  28 01 62");
+    assert_eq!(
+        from_slice::<(String, String)>(&mixed).expect("mixed"),
+        ("a".into(), "b".into())
+    );
 }
 
 #[test]
@@ -46,34 +141,58 @@ fn byte_arrays_and_arrays_are_interchangeable() {
     let compact = ser(&ByteBuf::from(vec![1, 2, 255]));
     let plain = ser(&vec![1u8, 2, 255]);
 
-    assert_eq!(from_slice::<Vec<u8>>(&compact).expect("bytes -> Vec<u8>"), [1, 2, 255]);
-    assert_eq!(from_slice::<[u8; 3]>(&compact).expect("bytes -> [u8; 3]"), [1, 2, 255]);
-    assert_eq!(from_slice::<Vec<u32>>(&compact).expect("bytes -> Vec<u32>"), [1, 2, 255]);
-    assert_eq!(from_slice::<ByteBuf>(&plain).expect("array -> bytes"), [1, 2, 255].as_slice());
+    assert_eq!(
+        from_slice::<Vec<u8>>(&compact).expect("bytes -> Vec<u8>"),
+        [1, 2, 255]
+    );
+    assert_eq!(
+        from_slice::<[u8; 3]>(&compact).expect("bytes -> [u8; 3]"),
+        [1, 2, 255]
+    );
+    assert_eq!(
+        from_slice::<Vec<u32>>(&compact).expect("bytes -> Vec<u32>"),
+        [1, 2, 255]
+    );
+    assert_eq!(
+        from_slice::<ByteBuf>(&plain).expect("array -> bytes"),
+        [1, 2, 255].as_slice()
+    );
 
     let err = from_slice::<ByteBuf>(&ser(&vec![1, 256])).expect_err("not a byte");
-    assert_eq!(err.to_string(), "at $[1]: integer 256 is out of range for u8 (offset 11)");
+    assert_eq!(
+        err.to_string(),
+        "at $[1]: integer 256 is out of range for u8 (offset 9)"
+    );
     let err = from_slice::<[u8; 2]>(&compact).expect_err("too long");
-    assert!(err.to_string().contains("1 unexpected trailing elements"), "{err}");
+    assert!(
+        err.to_string().contains("1 unexpected trailing elements"),
+        "{err}"
+    );
 }
 
 #[test]
 fn long_tags_with_short_lengths() {
-    assert_eq!(from_slice::<String>(&doc("1E 03 61 62 63")).expect("StringUtf8"), "abc");
     assert_eq!(
-        from_slice::<ByteBuf>(&doc("28 02 01 02")).expect("ByteArray"),
+        from_slice::<String>(&doc("23 03 61 62 63")).expect("StringUtf8"),
+        "abc"
+    );
+    assert_eq!(
+        from_slice::<ByteBuf>(&doc("32 02 01 02")).expect("ByteArray"),
         [1, 2].as_slice()
     );
     assert_eq!(
-        from_slice::<Vec<bool>>(&doc("32 02 05 01 05 00")).expect("Array"),
+        from_slice::<Vec<bool>>(&doc("3C 02 05 01 05 00")).expect("Array"),
         [true, false]
     );
     assert_eq!(
-        from_slice::<HashMap<String, bool>>(&doc("3C 01 01 61 05 01")).expect("Object"),
+        from_slice::<HashMap<String, bool>>(&doc("46 01 01 61 05 01")).expect("Object"),
         HashMap::from([("a".to_string(), true)])
     );
     // A non-minimal varint is still a valid length.
-    assert_eq!(from_slice::<String>(&doc("1E 81 00 61")).expect("padded varint"), "a");
+    assert_eq!(
+        from_slice::<String>(&doc("23 81 00 61")).expect("padded varint"),
+        "a"
+    );
 }
 
 #[test]
@@ -91,7 +210,11 @@ fn string_keys_feed_other_key_types() {
 
     let bad = HashMap::from([("one".to_string(), 1)]);
     let err = from_slice::<HashMap<u8, u8>>(&ser(&bad)).expect_err("not a number");
-    assert!(err.to_string().contains("invalid type: string \"one\", expected u8"), "{err}");
+    assert!(
+        err.to_string()
+            .contains("invalid type: string \"one\", expected u8"),
+        "{err}"
+    );
 }
 
 #[test]
@@ -115,11 +238,20 @@ fn enum_forms() {
         B(u8),
     }
     // A unit variant may also arrive as `{ "A": null }`.
-    assert_eq!(from_slice::<E>(&doc("41 01 01 41 00")).expect("unit as object"), E::A);
-    assert_eq!(from_slice::<E>(&doc("23 01 41")).expect("unit as string"), E::A);
-    assert_eq!(from_slice::<E>(&doc("41 01 01 42 0A 07 00 00 00")).expect("newtype"), E::B(7));
+    assert_eq!(
+        from_slice::<E>(&doc("4B 01 01 41 00")).expect("unit as object"),
+        E::A
+    );
+    assert_eq!(
+        from_slice::<E>(&doc("28 01 41")).expect("unit as string"),
+        E::A
+    );
+    assert_eq!(
+        from_slice::<E>(&doc("4B 01 01 42 0A 07 00")).expect("newtype"),
+        E::B(7)
+    );
 
-    let err = from_slice::<E>(&doc("41 02 01 41 00 01 42 00")).expect_err("two entries");
+    let err = from_slice::<E>(&doc("4B 02 01 41 00 01 42 00")).expect_err("two entries");
     assert_eq!(
         err.to_string(),
         "at $: expected an enum object with exactly 1 entry, found 2 entries (offset 4)"

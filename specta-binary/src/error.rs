@@ -41,12 +41,14 @@ pub enum ErrorKind {
     UnknownTag(u8),
     #[error("invalid bool byte {0:#04x}")]
     InvalidBool(u8),
-    #[error("varint is longer than 5 bytes or overflows 32 bits")]
+    #[error("varint is too long or overflows")]
     VarintOverflow,
     #[error("length {len} exceeds the {remaining} remaining bytes")]
     LengthOutOfBounds { len: u32, remaining: usize },
     #[error("key id {id} is out of range for a key table of {count} keys")]
     KeyIdOutOfRange { id: u32, count: usize },
+    #[error("value id {id} is out of range for a value table of {count} values")]
+    ValueIdOutOfRange { id: u32, count: usize },
     #[error("invalid UTF-8")]
     InvalidUtf8,
     #[error("maximum nesting depth of {0} exceeded")]
@@ -74,6 +76,8 @@ pub enum ErrorKind {
     LengthMismatch { declared: usize, actual: usize },
     #[error("too many distinct object keys for the key table")]
     TooManyKeys,
+    #[error("too many distinct strings for the value table")]
+    TooManyValues,
 }
 
 impl Error {
@@ -116,7 +120,9 @@ impl Error {
     pub(crate) fn in_key(mut self, key: &str) -> Self {
         // Matches `/^[A-Za-z_$][A-Za-z0-9_$]*$/` in the TypeScript runtime.
         let is_ident = key.starts_with(|c: char| c.is_ascii_alphabetic() || c == '_' || c == '$')
-            && key.chars().all(|c| c.is_ascii_alphanumeric() || c == '_' || c == '$');
+            && key
+                .chars()
+                .all(|c| c.is_ascii_alphanumeric() || c == '_' || c == '$');
         let segment = if is_ident {
             format!(".{key}")
         } else {

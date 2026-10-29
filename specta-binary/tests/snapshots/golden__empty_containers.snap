@@ -1,9 +1,10 @@
 ---
 source: specta-binary/tests/golden.rs
-expression: "cases([(\"empty seq\", ser(&Vec::<i32>::new())),\n(\"empty map\", ser(&BTreeMap::<String, i32>::new())),\n(\"empty struct\", ser(&Empty {})), (\"empty string\", ser(&\"\")),\n(\"empty bytes\", ser(serde_bytes::Bytes::new(&[]))),])"
+expression: "cases([(\"empty seq\", ser(&Vec::<i32>::new())),\n(\"empty map\", ser(&BTreeMap::<String, i32>::new())),\n(\"empty struct\", ser(&Empty {})), (\"empty string\", ser_plain(&\"\")),\n(\"empty string (value table)\", ser(&\"\")),\n(\"empty bytes\", ser(serde_bytes::Bytes::new(&[]))),])"
 ---
-empty seq                    53 42 01 00 | 37 00 (6 bytes)
-empty map                    53 42 01 00 | 41 00 (6 bytes)
-empty struct                 53 42 01 00 | 41 00 (6 bytes)
-empty string                 53 42 01 00 | 23 00 (6 bytes)
-empty bytes                  53 42 01 00 | 2D 00 (6 bytes)
+empty seq                    53 42 01 00 | 41 00 (6 bytes)
+empty map                    53 42 01 00 | 4B 00 (6 bytes)
+empty struct                 53 42 01 00 | 4B 00 (6 bytes)
+empty string                 53 42 01 00 | 28 00 (6 bytes)
+empty string (value table)   53 42 01 02 | 2D 00 (8 bytes)
+empty bytes                  53 42 01 00 | 37 00 (6 bytes)

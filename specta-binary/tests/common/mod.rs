@@ -16,12 +16,12 @@ pub fn from_hex(hex: &str) -> Vec<u8> {
         .collect()
 }
 
-/// A document with no key table around a hand-written body.
+/// A document with no tables around a hand-written body.
 pub fn doc(body: &str) -> Vec<u8> {
     from_hex(&format!("53 42 01 00 {body}"))
 }
 
-/// The bytes after the header and key table.
+/// The bytes after the header and tables.
 pub fn body(doc: &[u8]) -> &[u8] {
     let mut pos = 4;
     let varint = |pos: &mut usize| {
@@ -36,10 +36,12 @@ pub fn body(doc: &[u8]) -> &[u8] {
         }
         value
     };
-    if doc[3] & 1 != 0 {
-        for _ in 0..varint(&mut pos) {
-            let len = varint(&mut pos);
-            pos += len;
+    for flag in [1, 2] {
+        if doc[3] & flag != 0 {
+            for _ in 0..varint(&mut pos) {
+                let len = varint(&mut pos);
+                pos += len;
+            }
         }
     }
     &doc[pos..]
@@ -50,5 +52,10 @@ pub fn summary(doc: &[u8]) -> String {
     let body = body(doc);
     let head = &body[..body.len().min(12)];
     let more = if body.len() > head.len() { " …" } else { "" };
-    format!("{} | {}{more} ({} bytes)", hex(&doc[..4]), hex(head), doc.len())
+    format!(
+        "{} | {}{more} ({} bytes)",
+        hex(&doc[..4]),
+        hex(head),
+        doc.len()
+    )
 }

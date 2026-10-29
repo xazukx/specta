@@ -8,7 +8,8 @@ fn typescript_value_types_match_rust() {
         .find("export const ValueType = {")
         .expect("`ValueType` object in the runtime");
     let body = &TYPESCRIPT_RUNTIME[start..];
-    let body = &body[body.find('{').expect("opening brace") + 1..body.find('}').expect("closing brace")];
+    let body =
+        &body[body.find('{').expect("opening brace") + 1..body.find('}').expect("closing brace")];
 
     let typescript = body
         .split(',')
@@ -16,7 +17,10 @@ fn typescript_value_types_match_rust() {
         .filter(|entry| !entry.is_empty())
         .map(|entry| {
             let (name, value) = entry.split_once(':').expect("`Name: value` entry");
-            (name.trim().to_string(), value.trim().parse::<u8>().expect("numeric tag"))
+            (
+                name.trim().to_string(),
+                value.trim().parse::<u8>().expect("numeric tag"),
+            )
         })
         .collect::<Vec<_>>();
 

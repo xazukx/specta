@@ -4,8 +4,8 @@
 //! It works the way `serde_json` and `JSON.parse` do: there is no schema and no code generation.
 //! Any `Serialize`/`Deserialize` type works, and a decoded value has the same JavaScript shape as
 //! `JSON.parse(serde_json::to_string(&value))`, so it can be cast straight to the types
-//! `specta-typescript` generates. On top of the JSON data model the format adds typed numbers,
-//! raw bytes, short lengths and an optional table of interned object keys.
+//! `specta-typescript` generates. On top of the JSON data model the format adds typed integers,
+//! exact decimals, raw bytes, short lengths and optional tables of interned keys and strings.
 //!
 //! The wire format is specified in [`SPEC.md`](https://github.com/specta-rs/specta/blob/main/specta-binary/SPEC.md).
 //!
@@ -28,30 +28,39 @@
 //! # Ok::<(), specta_binary::Error>(())
 //! ```
 //!
-//! # The key table
+//! # Key and value tables
 //!
-//! By default each document starts with a table of the object keys it uses, and every
-//! object key is written as an index into that table. This makes documents with many
-//! objects of the same shape (like a `Vec<User>`) much smaller. Turn it off per serialize
-//! call with [`Config::key_table`]. Readers detect the table from the header, so
-//! deserializing never needs to know which was used.
+//! By default each document starts with two tables: one of the object keys it uses and one
+//! of its string values. Every object key and string value is then written as an index into
+//! its table, so documents that repeat keys and strings (like a `Vec<User>` with a `role`
+//! enum) are much smaller. Turn either off per serialize call with [`Config::key_table`]
+//! and [`Config::value_table`]. Readers detect the tables from the header, so deserializing
+//! never needs to know which were used.
 //!
 //! ```
 //! use specta_binary::Config;
 //!
-//! let users = vec![("name", "Ann"), ("name", "Bob")]
+//! let users = vec![("role", "admin"), ("role", "admin"), ("role", "member")]
 //!     .into_iter()
 //!     .map(|(k, v)| std::collections::BTreeMap::from([(k, v)]))
 //!     .collect::<Vec<_>>();
 //!
-//! let with_table = specta_binary::to_vec(&users)?;
-//! let inline_keys = specta_binary::to_vec_with(&users, &Config::new().key_table(false))?;
+//! let with_tables = specta_binary::to_vec(&users)?;
+//! let inline = specta_binary::to_vec_with(&users, &Config::new().key_table(false).value_table(false))?;
+//! assert!(with_tables.len() < inline.len());
 //! assert_eq!(
-//!     specta_binary::from_slice::<serde_json::Value>(&with_table)?,
-//!     specta_binary::from_slice::<serde_json::Value>(&inline_keys)?,
+//!     specta_binary::from_slice::<serde_json::Value>(&with_tables)?,
+//!     specta_binary::from_slice::<serde_json::Value>(&inline)?,
 //! );
 //! # Ok::<(), specta_binary::Error>(())
 //! ```
+//!
+//! # Numbers
+//!
+//! Integers use the narrowest of `Int16`, `Int32` and `Int64`. A float is written as a
+//! `Decimal`, the shortest `mantissa × 10^exponent` that reads back as the same `f32` or `f64`
+//! (so `1.5` takes 3 bytes), unless its IEEE-754 bits (`Float64`, 9 bytes) are smaller. Every
+//! float reads back exactly, and `0.1f32` reads back as `0.1` in JavaScript, like `serde_json`.
 //!
 //! # Bytes
 //!
@@ -78,9 +87,10 @@
 #![cfg_attr(docsrs, feature(doc_cfg))]
 
 mod de;
+mod decimal;
 mod error;
-mod keys;
 mod ser;
+mod table;
 mod value_type;
 mod varint;
 
@@ -91,7 +101,9 @@ use serde::{Deserialize, Serialize};
 pub use de::Deserializer;
 pub use error::{Error, ErrorKind};
 pub use ser::{Compound, Serializer};
-pub use value_type::{FLAG_HAS_KEY_TABLE, KNOWN_FLAGS, MAGIC, VERSION, ValueType};
+pub use value_type::{
+    FLAG_HAS_KEY_TABLE, FLAG_HAS_VALUE_TABLE, KNOWN_FLAGS, MAGIC, VERSION, ValueType,
+};
 
 /// The source of the TypeScript runtime (`specta_binary.ts`), so it can be written into a
 /// frontend from a build script.
@@ -101,6 +113,7 @@ pub const TYPESCRIPT_RUNTIME: &str = include_str!("../runtime/specta_binary.ts")
 #[derive(Debug, Clone)]
 pub struct Config {
     key_table: bool,
+    value_table: bool,
     max_depth: usize,
 }
 
@@ -108,6 +121,7 @@ impl Default for Config {
     fn default() -> Self {
         Self {
             key_table: true,
+            value_table: true,
             max_depth: 128,
         }
     }
@@ -125,6 +139,14 @@ impl Config {
         self
     }
 
+    /// Whether to intern string values (including unit variant names) into a value table at
+    /// the start of the document. Defaults to `true`. Only affects serializing: readers detect
+    /// the table from the header.
+    pub fn value_table(mut self, enabled: bool) -> Self {
+        self.value_table = enabled;
+        self
+    }
+
     /// The maximum nesting depth of arrays and objects when deserializing. Defaults to `128`.
     pub fn max_depth(mut self, max_depth: usize) -> Self {
         self.max_depth = max_depth;
@@ -132,7 +154,7 @@ impl Config {
     }
 }
 
-/// Serialize `value` into a document, with the key table on.
+/// Serialize `value` into a document, with the key and value tables on.
 pub fn to_vec<T: ?Sized + Serialize>(value: &T) -> Result<Vec<u8>, Error> {
     to_vec_with(value, &Config::default())
 }
@@ -145,7 +167,10 @@ pub fn to_vec_with<T: ?Sized + Serialize>(value: &T, config: &Config) -> Result<
 }
 
 /// Serialize `value` into `writer`. The document is buffered and written with a single `write_all`.
-pub fn to_writer<W: io::Write, T: ?Sized + Serialize>(mut writer: W, value: &T) -> Result<(), Error> {
+pub fn to_writer<W: io::Write, T: ?Sized + Serialize>(
+    mut writer: W,
+    value: &T,
+) -> Result<(), Error> {
     writer.write_all(&to_vec(value)?)?;
     Ok(())
 }
@@ -156,7 +181,10 @@ pub fn from_slice<'de, T: Deserialize<'de>>(bytes: &'de [u8]) -> Result<T, Error
 }
 
 /// Deserialize a `T` from a document. Only [`Config::max_depth`] applies.
-pub fn from_slice_with<'de, T: Deserialize<'de>>(bytes: &'de [u8], config: &Config) -> Result<T, Error> {
+pub fn from_slice_with<'de, T: Deserialize<'de>>(
+    bytes: &'de [u8],
+    config: &Config,
+) -> Result<T, Error> {
     let mut deserializer = Deserializer::from_slice_with(bytes, config)?;
     let at = deserializer.offset();
     let value = T::deserialize(&mut deserializer).map_err(|err| err.or_offset(at).rooted())?;

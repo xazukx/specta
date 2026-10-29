@@ -68,7 +68,10 @@ fn main() -> Result<(), Box<dyn Error>> {
         .register::<Event>()
         .register::<Attachment>();
     Typescript::default().export_to(out.join("bindings.ts"), &specta_serde::apply(types)?)?;
-    fs::write(out.join("specta_binary.ts"), specta_binary::TYPESCRIPT_RUNTIME)?;
+    fs::write(
+        out.join("specta_binary.ts"),
+        specta_binary::TYPESCRIPT_RUNTIME,
+    )?;
 
     let ann = user(1);
     let bytes = specta_binary::to_vec(&ann)?;
@@ -86,14 +89,18 @@ fn main() -> Result<(), Box<dyn Error>> {
         name: "pixel.bin".into(),
         data: vec![0xDE, 0xAD, 0xBE, 0xEF],
     };
-    fs::write(out.join("attachment.bin"), specta_binary::to_vec(&attachment)?)?;
+    fs::write(
+        out.join("attachment.bin"),
+        specta_binary::to_vec(&attachment)?,
+    )?;
 
     let users = (1..=100).map(user).collect::<Vec<_>>();
     println!(
-        "100 users: {} bytes as JSON, {} bytes as Specta Binary ({} without the key table)",
+        "100 users: {} bytes as JSON, {} bytes as Specta Binary ({} without the key and value tables)",
         serde_json::to_vec(&users)?.len(),
         specta_binary::to_vec(&users)?.len(),
-        specta_binary::to_vec_with(&users, &Config::new().key_table(false))?.len(),
+        specta_binary::to_vec_with(&users, &Config::new().key_table(false).value_table(false))?
+            .len(),
     );
     println!("Wrote bindings, runtime and samples to {}", out.display());
     Ok(())

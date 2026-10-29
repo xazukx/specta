@@ -2,8 +2,8 @@
 source: specta-binary/tests/hostile.rs
 expression: "messages.join(\"\\n\")"
 ---
-at $.users[3].email: expected string, found Int32 (offset 80)
-at $.users[0]: missing field `age` (offset 21)
-at $.A.x: expected u8, found ShortStringUtf8 (offset 15)
-at $: unknown variant `B`, expected `A` (offset 4)
-at $["weird key"]: expected string, found Float64 (offset 18)
+at $.users[3].email: expected string, found Int16 (offset 73)
+at $.users[0]: missing field `age` (offset 24)
+at $.A.x: expected u8, found InternedString (offset 19)
+at $: unknown variant `B`, expected `A` (offset 7)
+at $["weird key"]: expected string, found Decimal (offset 18)

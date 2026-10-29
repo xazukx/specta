@@ -33,3 +33,11 @@ console.log(attachment.name, attachment.data.map((byte) => byte.toString(16)).jo
 // Encoding the same value gives the same bytes Rust wrote, ready to POST back.
 const reencoded = encode(user);
 console.log("byte-identical:", Buffer.from(reencoded).equals(read("user.bin")));
+
+// Parse JSON before encoding it: the raw file `Buffer` would be encoded as a byte array.
+console.log("--Big JSON--");
+const big = JSON.parse(readFileSync(new URL("./big.json", import.meta.url), "utf8"));
+const withTables = encode(big);
+const inline = encode(big, { keyTable: false, valueTable: false });
+console.log(`minified json: ${Buffer.byteLength(JSON.stringify(big))} B`);
+console.log(`encoded: ${withTables.length} B, without the key and value tables: ${inline.length} B`);
